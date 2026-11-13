@@ -82,8 +82,12 @@ public class NewEntryWorker extends Worker {
     public Result doWork() {
         Context ctx = getApplicationContext();
         SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        p.edit().putString("lastRun", now()).apply();
         String refresh = p.getString("refreshToken", "");
-        if (refresh.isEmpty()) return Result.success(); // 아직 로그인 전
+        if (refresh.isEmpty()) {
+            p.edit().putString("lastResult", "로그인 정보가 아직 없어요 (앱을 한 번 열어 주세요)").apply();
+            return Result.success(); // 아직 로그인 전
+        }
         try {
             // 1) 로그인 토큰 받기
             String form = "grant_type=refresh_token&refresh_token=" + URLEncoder.encode(refresh, "UTF-8");
@@ -127,10 +131,13 @@ public class NewEntryWorker extends Worker {
                     .put("author", author));
                 added++;
             }
-            p.edit().putString("pending", pending.toString()).putString("lastNotified", lastNotified).apply();
+            p.edit().putString("pending", pending.toString()).putString("lastNotified", lastNotified)
+                .putString("lastResult", "확인 완료 · 새 글 " + added + "개 (찾은 글 " + rows.length() + "개)")
+                .remove("lastError").apply();
             if (added > 0) show(ctx, pending);
             return Result.success();
         } catch (Exception e) {
+            p.edit().putString("lastError", now() + " " + e).apply();
             return Result.retry();
         }
     }
@@ -168,6 +175,30 @@ public class NewEntryWorker extends Worker {
         } catch (SecurityException ignored) {
             // 알림 권한을 허용하지 않은 경우
         }
+    }
+
+    static String now() {
+        return new java.text.SimpleDateFormat("M/d HH:mm:ss", java.util.Locale.KOREA).format(new java.util.Date());
+    }
+
+    /** 앱이 뒤에 있을 때 웹 화면이 찾은 새 글을 바로 알린다 (15분 기다리지 않고) */
+    static void addAndShow(Context ctx, JSONArray items) throws Exception {
+        SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSONArray pending = new JSONArray(p.getString("pending", "[]"));
+        java.util.HashSet<String> ids = new java.util.HashSet<>();
+        for (int i = 0; i < pending.length(); i++) ids.add(pending.getJSONObject(i).optString("id"));
+        String last = p.getString("lastNotified", "");
+        int added = 0;
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject it = items.getJSONObject(i);
+            String created = it.optString("createdAt");
+            if (ids.contains(it.optString("id")) || created.compareTo(max(last, p.getString("appSeen", ""))) <= 0) continue;
+            pending.put(it);
+            last = max(last, created);
+            added++;
+        }
+        p.edit().putString("pending", pending.toString()).putString("lastNotified", last).apply();
+        if (added > 0) show(ctx, pending);
     }
 
     private static String koDate(String ymd) {

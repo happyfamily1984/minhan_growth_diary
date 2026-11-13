@@ -231,6 +231,7 @@ function refresh() {
   if (currentView === 'calendar') renderCalendar();
   if (currentView === 'photos') renderGallery();
   if (currentView === 'all') renderAll();
+  if (currentView === 'search') renderNotifyCheck();
 }
 
 // ---------------- 오늘 ----------------
@@ -1619,6 +1620,68 @@ function openPending() {
   }, 350);
 }
 window.onAndroidOpen = takeOpen;
+
+/** 새로 들어온 다른 사람의 글: 앱이 뒤에 있으면 바로 폰 알림, 보고 있으면 화면에 알려 줌 */
+let knownIds = null;
+function watchNewForNotify() {
+  if (!store.ready()) return;
+  const all = store.all();
+  if (!knownIds) {
+    knownIds = new Set(all.map((e) => e.id)); // 처음 불러온 것은 새 글이 아님
+    return;
+  }
+  const fresh = all.filter((e) => !knownIds.has(e.id));
+  fresh.forEach((e) => knownIds.add(e.id));
+  const others = fresh.filter((e) => e.author && e.author !== myName()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  if (!others.length) return;
+  if (document.hidden && notify?.showNew) {
+    notify.showNew(JSON.stringify(others.map(({ id, date, text, author, createdAt }) => ({ id, date, text, author, createdAt }))));
+  } else {
+    const who = others[0].author;
+    toast(`💌 ${who}${/[가-힣]$/.test(who) && (who.charCodeAt(who.length - 1) - 0xac00) % 28 ? '이' : '가'} 새 내용을 올렸어요${others.length > 1 ? ` (${others.length}개)` : ''}`);
+  }
+}
+
+/** 설정 > 알림 점검 */
+function renderNotifyCheck() {
+  const box = $('#notifyCheck');
+  if (!box) return;
+  if (!notify?.getStatus) {
+    box.innerHTML = '<p class="muted small">알림은 휴대폰 앱에서만 돼요.</p>';
+    return;
+  }
+  let st = {};
+  try {
+    st = JSON.parse(notify.getStatus() || '{}');
+  } catch {}
+  const ok = (b) => (b ? '✅' : '⚠️');
+  box.innerHTML = `
+    <ul class="check-list">
+      <li>${ok(st.enabled)} 알림 허용: ${st.enabled ? '켜져 있어요' : '<b>꺼져 있어요</b> → 아래 [알림 설정]에서 켜 주세요'}</li>
+      <li>${ok(st.batteryFree)} 배터리 제한: ${st.batteryFree ? '없어요' : '<b>있어요</b> → [배터리 제한 풀기]를 눌러 허용해 주세요 (안 풀면 확인이 몇 시간씩 늦어질 수 있어요)'}</li>
+      <li>${ok(st.hasToken)} 로그인 정보: ${st.hasToken ? '있어요' : '없어요 (로그아웃 후 다시 들어와 주세요)'}</li>
+      <li>✍️ 이 폰의 기록자: <b>${esc(st.author || '안 정함')}</b> (이 이름으로 쓴 글은 이 폰에 알림이 안 와요)</li>
+      <li>🕐 마지막 확인: ${esc(st.lastRun || '아직 없음')} ${st.lastResult ? `· ${esc(st.lastResult)}` : ''}</li>
+      ${st.lastError ? `<li>❗ 오류: <small>${esc(st.lastError)}</small></li>` : ''}
+    </ul>
+    <p class="muted small">앱을 보고 있을 때 온 새 글은 알림 대신 화면에 알려 드려요. 앱을 닫아 두면 15분마다 확인해요.</p>
+    <div class="check-btns">
+      <button class="btn small" data-n="test">🔔 시험 알림</button>
+      <button class="btn small" data-n="check">🔄 지금 새 글 확인</button>
+      <button class="btn small" data-n="settings">⚙️ 알림 설정</button>
+      <button class="btn small" data-n="battery">🔋 배터리 제한 풀기</button>
+    </div>`;
+  box.querySelector('[data-n=test]').onclick = () => notify.testNotify();
+  box.querySelector('[data-n=check]').onclick = () => {
+    reportSeen();
+    notify.checkNow();
+    toast('확인 중이에요… 잠시 뒤 결과가 보여요');
+    setTimeout(renderNotifyCheck, 6000);
+  };
+  box.querySelector('[data-n=settings]').onclick = () => notify.openNotifySettings();
+  box.querySelector('[data-n=battery]').onclick = () => notify.askBattery();
+}
+document.addEventListener('visibilitychange', () => !document.hidden && currentView === 'search' && setTimeout(renderNotifyCheck, 300));
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) reportSeen();
   else takeOpen();
@@ -1738,6 +1801,7 @@ function showSync() {
 let refreshTimer;
 store.onChange(() => {
   showSync();
+  watchNewForNotify();
   openPending();
   if (!document.hidden) reportSeen();
   clearTimeout(refreshTimer);

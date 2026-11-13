@@ -149,6 +149,69 @@ public class MainActivity extends BridgeActivity {
         public void checkNow() {
             NewEntryWorker.checkNow(ctx);
         }
+
+        /** 알림 점검용 상태 */
+        @JavascriptInterface
+        public String getStatus() {
+            android.content.SharedPreferences p = ctx.getSharedPreferences(NewEntryWorker.PREFS, android.content.Context.MODE_PRIVATE);
+            try {
+                JSONObject o = new JSONObject();
+                o.put("enabled", androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled());
+                o.put("hasToken", !p.getString("refreshToken", "").isEmpty());
+                o.put("author", p.getString("author", ""));
+                o.put("lastRun", p.getString("lastRun", ""));
+                o.put("lastResult", p.getString("lastResult", ""));
+                o.put("lastError", p.getString("lastError", ""));
+                o.put("since", p.getString("since", ""));
+                o.put("lastNotified", p.getString("lastNotified", ""));
+                android.os.PowerManager pm = (android.os.PowerManager) ctx.getSystemService(android.content.Context.POWER_SERVICE);
+                o.put("batteryFree", pm != null && pm.isIgnoringBatteryOptimizations(ctx.getPackageName()));
+                return o.toString();
+            } catch (Exception e) {
+                return "{}";
+            }
+        }
+
+        /** 시험 알림 */
+        @JavascriptInterface
+        public void testNotify() {
+            try {
+                JSONArray a = new JSONArray().put(new JSONObject()
+                    .put("id", "test").put("date", new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.KOREA).format(new java.util.Date()))
+                    .put("text", "알림이 잘 와요! 🎉").put("author", "시험"));
+                NewEntryWorker.show(ctx, a);
+            } catch (Exception ignored) {}
+        }
+
+        /** 앱이 뒤에 있을 때 찾은 새 글을 바로 알림 */
+        @JavascriptInterface
+        public void showNew(String json) {
+            try {
+                NewEntryWorker.addAndShow(ctx, new JSONArray(json));
+            } catch (Exception ignored) {}
+        }
+
+        @JavascriptInterface
+        public void openNotifySettings() {
+            Intent i = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.getPackageName())
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
+        }
+
+        /** 배터리 사용 제한 풀기 (백그라운드 확인이 미뤄지지 않게) */
+        @JavascriptInterface
+        public void askBattery() {
+            try {
+                Intent i = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.parse("package:" + ctx.getPackageName()))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(i);
+            } catch (Exception e) {
+                Intent i = new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(i);
+            }
+        }
     }
 
     private static class ShareBridge {

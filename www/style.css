@@ -640,3 +640,10 @@ mark { background: #ffe58a; border-radius: 3px; padding: 0 1px; }
 .saju-block { background: var(--cream); border-radius: 16px; padding: 10px 12px; margin: 10px 0; }
 .saju-block h5 { margin: 0 0 6px; font-family: var(--font-title); font-weight: 400; font-size: 1.02rem; color: #5b3fc4; }
 .saju-block p { margin: 0 0 6px; }
+
+/* ---------- 알림 점검 ---------- */
+.notify-card { background: var(--cream); border-radius: 18px; padding: 12px 14px; }
+.notify-card h3 { margin: 0 0 6px; font-family: var(--font-title); font-weight: 400; font-size: 1.05rem; }
+.check-list { list-style: none; padding: 0; margin: 0 0 6px; font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px; }
+.check-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.check-btns .btn { white-space: nowrap; font-size: min(0.85rem, 3.4vw); }
