@@ -29,6 +29,13 @@ public class MainActivity extends BridgeActivity {
         getBridge().getWebView().addJavascriptInterface(new ShareBridge(), "AndroidShare");
         getBridge().getWebView().addJavascriptInterface(new NotifyBridge(getApplicationContext()), "AndroidNotify");
         handleOpen(getIntent());
+        // 상단바·하단 버튼 줄은 안드로이드가 비워 주고(앱 화면은 그 사이에만), 그 자리는 앱 색으로 채운다
+        // 위: 하늘색(머리 그림과 이어지게) / 아래: 아래 메뉴와 같은 색
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[] { 0xFFD6E9FC, 0xFFFFFDF9, 0xFFFFFDF9 });
+        getWindow().getDecorView().setBackground(bg);
+        getBridge().getWebView().setBackgroundColor(0xFFFFF8EC);
         // 새 글 알림: 15분마다 확인 + 알림 권한 물어보기 (안드로이드 13 이상)
         NewEntryWorker.ensureChannel(this);
         NewEntryWorker.schedule(this);
