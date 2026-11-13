@@ -183,6 +183,18 @@
     <img class="land" src="img/land.webp" alt="" />
   </dialog>
 
+  <!-- 년·월 고르기 -->
+  <dialog id="monthPicker" class="month-picker">
+    <h3>🗓️ <span id="pickTitle"></span> 몇 월을 볼까요?</h3>
+    <div class="pick-years" id="pickYears"></div>
+    <div class="pick-months" id="pickMonths"></div>
+    <div class="editor-actions">
+      <button type="button" class="btn" id="pickToday">오늘로</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>닫기</button>
+    </div>
+  </dialog>
+
   <!-- 사진 넣기 -->
   <dialog id="photoAdd">
     <form id="photoAddForm">

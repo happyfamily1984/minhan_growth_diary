@@ -242,8 +242,55 @@ $('#calNext').addEventListener('click', () => {
   calMonth = shiftMonth(calMonth, 1);
   renderCalendar();
 });
+// 년·월 고르기: 태어난 해(2016년, 0살)부터 올해까지
+const monthPicker = $('#monthPicker');
+let pickYear = null;
 $('#calTitleBtn').addEventListener('click', () => {
+  pickYear = Number(calMonth.slice(0, 4));
+  renderMonthPicker();
+  openDialog(monthPicker);
+});
+function renderMonthPicker() {
+  const today = todaySeoul();
+  const thisYear = Number(today.slice(0, 4));
+  const birthYear = Number(BIRTH_DATE.slice(0, 4));
+  const years = $('#pickYears');
+  years.replaceChildren();
+  for (let y = birthYear; y <= thisYear; y++) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'year-btn' + (y === pickYear ? ' on' : '');
+    b.innerHTML = `<b>${y}년</b><small>${y === birthYear ? '0살 · 태어난 해' : `${y - birthYear}살`}</small>`;
+    b.addEventListener('click', () => {
+      pickYear = y;
+      renderMonthPicker();
+    });
+    years.append(b);
+  }
+  requestAnimationFrame(() => $('.year-btn.on', years)?.scrollIntoView({ block: 'nearest', inline: 'center' }));
+  const months = $('#pickMonths');
+  months.replaceChildren();
+  for (let m = 1; m <= 12; m++) {
+    const ym = `${pickYear}-${String(m).padStart(2, '0')}`;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'month-btn' + (ym === calMonth ? ' on' : '');
+    b.textContent = `${m}월`;
+    b.disabled = ym < BIRTH_DATE.slice(0, 7) || ym > today.slice(0, 7);
+    b.addEventListener('click', () => {
+      // 그 달에 오늘이 있으면 오늘, 태어난 달이면 생일, 아니면 1일을 고른다
+      const d = ym === today.slice(0, 7) ? today : ym === BIRTH_DATE.slice(0, 7) ? BIRTH_DATE : `${ym}-01`;
+      selectDate(d);
+      closeDialog(monthPicker);
+      renderCalendar();
+    });
+    months.append(b);
+  }
+  $('#pickTitle').textContent = `${pickYear}년`;
+}
+$('#pickToday').addEventListener('click', () => {
   selectDate(todaySeoul());
+  closeDialog(monthPicker);
   renderCalendar();
 });
 $('#writeDay').addEventListener('click', () => openEditor(selectedDate));
@@ -280,7 +327,7 @@ async function renderCalendar() {
   }
   $('#calFoot').textContent = `이번 달 ${monthCount}개 · 전체 ${total.toLocaleString()}개의 기록`;
   $('#dayTitle').textContent = prettyDate(selectedDate);
-  $('#daySub').innerHTML = selectedDate >= BIRTH_DATE ? `탄생 <b>${dayNumber(selectedDate).toLocaleString()}</b>일째 · ${ageText(selectedDate)}` : '';
+  $('#daySub').innerHTML = selectedDate >= BIRTH_DATE ? `<span class="nw">탄생 <b>${dayNumber(selectedDate).toLocaleString()}</b>일째</span> · <span class="nw">${ageText(selectedDate)}</span>` : '';
   $('#writeDay').hidden = selectedDate < BIRTH_DATE;
   renderList($('#dayList'), await store.list({ date: selectedDate }), {
     art: 'empty-book.webp',
