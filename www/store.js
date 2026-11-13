@@ -172,14 +172,17 @@ export const store = {
   },
 
   // ---- 사진 (기록과 따로) ----
-  photos({ date } = {}) {
+  /** standalone: 글에 붙지 않은 사진만, entryId: 그 글에 붙은 사진만 */
+  photos({ date, standalone, entryId } = {}) {
     let list = [...photos.values()];
     if (date) list = list.filter((p) => p.date === date);
+    if (standalone) list = list.filter((p) => !p.entryId);
+    if (entryId) list = list.filter((p) => p.entryId === entryId);
     return list.sort((a, b) => `${b.date}${b.createdAt}`.localeCompare(`${a.date}${a.createdAt}`));
   },
   photoDates() {
     const c = {};
-    for (const p of photos.values()) c[p.date] = (c[p.date] || 0) + 1;
+    for (const p of photos.values()) if (!p.entryId) c[p.date] = (c[p.date] || 0) + 1;
     return c;
   },
   /** { date, caption, thumb, data, width, height } — thumb/data 는 JPEG data URL */
@@ -187,7 +190,18 @@ export const store = {
     if (!DATE_RE.test(p.date || '')) throw new Error('날짜를 확인해 주세요');
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const meta = { id, date: p.date, caption: String(p.caption || '').trim(), thumb: p.thumb, width: p.width, height: p.height, author: currentAuthor, createdAt: now, updatedAt: now };
+    const meta = {
+      id,
+      date: p.date,
+      caption: String(p.caption || '').trim(),
+      thumb: p.thumb,
+      width: p.width,
+      height: p.height,
+      author: p.author ?? currentAuthor,
+      entryId: p.entryId || null, // 글에 붙은 사진이면 그 글
+      createdAt: now,
+      updatedAt: now,
+    };
     photos.set(id, meta);
     write(setDoc(photoDataDoc(id), { data: p.data }));
     write(setDoc(doc(photosCol, id), meta));

@@ -115,7 +115,11 @@
       <!-- 사진 -->
       <section id="view-photos" class="view" hidden>
         <div class="card photo-intro">
-          <label class="btn primary big file-btn">📷 사진 넣기<input type="file" id="photoFile" accept="image/*" multiple hidden /></label>
+          <div class="photo-btns">
+            <button class="btn primary big" id="photoCamBtn">📷 사진 찍기</button>
+            <label class="btn primary big file-btn">🖼️ 사진 넣기<input type="file" id="photoFile" accept="image/*" multiple hidden /></label>
+          </div>
+          <input type="file" id="photoCamFile" accept="image/*" capture="environment" hidden />
           <p class="muted">사진은 작게 줄여서(장당 약 200KB) 클라우드에 저장해요. 원본은 갤러리에 그대로 있어요.</p>
         </div>
         <div id="gallery"></div>
@@ -145,6 +149,7 @@
           <div class="pill pill-cream search-box">🔍 <input type="search" id="allSearch" placeholder="단어로 찾기 (예: 공룡)" /></div>
           <div class="filter-row"><span class="filter-label">나이</span><div class="chips" id="fAge"></div></div>
           <div class="filter-row"><span class="filter-label">종류</span><div class="chips" id="fKind"></div></div>
+          <div class="filter-row"><span class="filter-label">사진</span><div class="chips" id="fPhoto"></div></div>
           <div class="filter-row"><span class="filter-label">기록자</span><div class="chips" id="fAuthor"></div></div>
           <div class="filter-row"><span class="filter-label">순서</span><div class="chips" id="fOrder"></div></div>
         </div>
@@ -203,9 +208,22 @@
         <span class="text-wrap"><textarea name="text" rows="5" class="grow" required></textarea><span class="text-star">⭐</span></span>
       </label>
       <label class="field">
-        <span class="field-label">📷 상황 메모 <small class="muted">(선택)</small></span>
+        <span class="field-label">📝 상황 메모 <small class="muted">(선택)</small></span>
         <textarea name="note" rows="2" class="grow" placeholder="저녁 먹고 산책하다가"></textarea>
       </label>
+      <div class="field">
+        <span class="field-label">📷 사진 <small class="muted">(선택)</small></span>
+        <div class="attach-list" id="attachList"></div>
+        <div class="attach-btns">
+          <button type="button" class="btn small" id="takePhotoBtn">📷 사진 찍기</button>
+          <label class="btn small file-btn">🖼️ 사진 고르기<input type="file" id="attachFile" accept="image/*" multiple hidden /></label>
+          <input type="file" id="cameraFile" accept="image/*" capture="environment" hidden />
+        </div>
+      </div>
+      <div class="field">
+        <span class="field-label">✍️ 기록자</span>
+        <div class="author-pick" id="editorAuthor"></div>
+      </div>
       <div class="editor-actions">
         <button type="button" class="btn danger" id="editorDelete" hidden>삭제</button>
         <button type="button" class="btn big" id="editorCancel">취소</button>
@@ -302,6 +320,11 @@
         <span class="field-label">설명 <small class="muted">(선택)</small></span>
         <textarea name="caption" rows="2" class="grow" placeholder="놀이터에서 처음 철봉에 매달린 날"></textarea>
       </label>
+      <p class="muted small" id="photoOfEntry" hidden>📝 글에 붙은 사진이에요</p>
+      <div class="field">
+        <span class="field-label">✍️ 기록자</span>
+        <div class="author-pick" id="photoAuthor"></div>
+      </div>
       <div class="editor-actions">
         <button type="button" class="btn danger" id="photoDelete">삭제</button>
         <span class="spacer"></span>

@@ -653,3 +653,20 @@ mark { background: #ffe58a; border-radius: 3px; padding: 0 1px; }
 .entry.kind-funny .entry-text::before { content: '😂 “'; }
 .all-item.kind-funny .all-text::before { content: '😂 '; }
 .seg span { font-size: min(1.15rem, 4.2vw); padding: 12px 4px; }
+
+/* ---------- 기록자 고르기, 글에 붙은 사진 ---------- */
+.author-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.author-other { margin-top: 6px; border: 1.5px solid var(--orange-2); background: var(--cream); border-radius: 12px; padding: 8px 10px; font-size: 1rem; }
+.attach-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.attach-list:empty { display: none; }
+.attach-item { position: relative; width: 84px; height: 84px; }
+.attach-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; box-shadow: var(--shadow); }
+.attach-x { position: absolute; top: -6px; right: -6px; width: 24px; height: 24px; border-radius: 50%; border: 0; background: #3a2e2a; color: #fff; font-size: 0.75rem; cursor: pointer; }
+.attach-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.entry-photos { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.entry-photos img { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; cursor: pointer; }
+.all-pics { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.all-pics img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; cursor: pointer; }
+
+.photo-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.photo-btns .btn { width: 100%; padding: 14px 6px; font-size: min(1.05rem, 4.2vw); }

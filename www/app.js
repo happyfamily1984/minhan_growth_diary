@@ -94,6 +94,22 @@ function entryCard(e, { showDate = false } = {}) {
     </div>
     ${e.author ? `<span class="author-mini">${esc(e.author)}</span>` : ''}`;
   el.dataset.id = e.id;
+  const pics = store.photos({ entryId: e.id });
+  if (pics.length) {
+    const strip = document.createElement('div');
+    strip.className = 'entry-photos';
+    for (const ph of pics) {
+      const im = document.createElement('img');
+      im.src = ph.thumb;
+      im.alt = '';
+      im.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openPhoto(ph);
+      });
+      strip.append(im);
+    }
+    el.insertBefore(strip, el.querySelector('.entry-meta'));
+  }
   if (isNewEntry(e)) {
     shownNew.add(e.id);
     seen.ids.add(e.id);
@@ -188,7 +204,7 @@ function pushAction(view, snap) {
 }
 const snapCal = () => pushAction('calendar', { calMonth, selectedDate });
 const snapAll = () =>
-  pushAction('all', { ages: [...allFilter.ages], kinds: [...allFilter.kinds], authors: [...allFilter.authors], order: allFilter.order, q: $('#allSearch').value });
+  pushAction('all', { ages: [...allFilter.ages], kinds: [...allFilter.kinds], authors: [...allFilter.authors], order: allFilter.order, withPhoto: !!allFilter.withPhoto, q: $('#allSearch').value });
 function restoreAction(view, snap) {
   restoring = true;
   if (view === 'calendar') {
@@ -200,6 +216,7 @@ function restoreAction(view, snap) {
     allFilter.kinds = new Set(snap.kinds);
     allFilter.authors = new Set(snap.authors);
     allFilter.order = snap.order;
+    allFilter.withPhoto = !!snap.withPhoto;
     $('#allSearch').value = snap.q;
     saveAllFilter();
     renderAll();
@@ -288,6 +305,100 @@ function setKind(kind) {
   $('#textLabel').textContent = k.field;
   form.text.placeholder = k.ph;
 }
+/** 기록자 고르기: 아빠 / 엄마 / 기타(직접 쓰기) */
+function makeAuthorPicker(root) {
+  root.innerHTML = `<div class="author-chips">
+      <button type="button" class="chip" data-a="아빠">👨 아빠</button>
+      <button type="button" class="chip" data-a="엄마">👩 엄마</button>
+      <button type="button" class="chip" data-a="기타">🙂 기타</button>
+    </div>
+    <input type="text" class="author-other" maxlength="10" placeholder="이름 (예: 할머니)" hidden />`;
+  const other = $('.author-other', root);
+  let chosen = '';
+  const show = () => {
+    for (const b of $$('[data-a]', root)) b.classList.toggle('on', b.dataset.a === chosen);
+    other.hidden = chosen !== '기타';
+  };
+  for (const b of $$('[data-a]', root))
+    b.addEventListener('click', () => {
+      chosen = b.dataset.a;
+      show();
+      if (chosen === '기타') other.focus();
+      root.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  return {
+    set(name) {
+      chosen = !name ? '' : ['아빠', '엄마'].includes(name) ? name : '기타';
+      other.value = chosen === '기타' ? name : '';
+      show();
+    },
+    get: () => (chosen === '기타' ? other.value.trim() : chosen),
+  };
+}
+const editorAuthor = makeAuthorPicker($('#editorAuthor'));
+const photoAuthor = makeAuthorPicker($('#photoAuthor'));
+
+// --- 글에 붙이는 사진 ---
+let attachOld = []; // 이미 붙어 있는 사진 (고칠 때)
+let attachRemoved = new Set();
+let attachNew = []; // 새로 붙일 사진 {data, thumb, width, height}
+function renderAttach() {
+  const list = $('#attachList');
+  list.replaceChildren();
+  const add = (thumb, onRemove, onOpen) => {
+    const d = document.createElement('div');
+    d.className = 'attach-item';
+    d.innerHTML = `<img src="${thumb}" alt=""><button type="button" class="attach-x" aria-label="빼기">✕</button>`;
+    $('img', d).addEventListener('click', onOpen || (() => {}));
+    $('.attach-x', d).addEventListener('click', onRemove);
+    list.append(d);
+  };
+  for (const ph of attachOld.filter((x) => !attachRemoved.has(x.id)))
+    add(ph.thumb, () => (attachRemoved.add(ph.id), renderAttach()), () => openPhoto(ph));
+  attachNew.forEach((ph, i) => add(ph.thumb, () => (attachNew.splice(i, 1), renderAttach(), saveAttachDraft())));
+}
+const saveAttachDraft = () => kv.set('write-photos', { editingId: editing?.id || null, photos: attachNew });
+async function addAttachFiles(files) {
+  for (const f of files) {
+    try {
+      attachNew.push(await shrinkPhoto(f));
+    } catch (err) {
+      toast(err.message || '사진을 열 수 없어요');
+    }
+  }
+  renderAttach();
+  saveAttachDraft();
+}
+/** 사진 찍기: 폰 앱은 카메라로 바로 (갤러리에도 저장), 웹은 카메라 입력 */
+$('#takePhotoBtn').addEventListener('click', async () => {
+  const Camera = window.Capacitor?.Plugins?.Camera;
+  if (native && Camera?.takePhoto) {
+    try {
+      const r = await Camera.takePhoto({ quality: 90, saveToGallery: true, correctOrientation: true });
+      const blob = await (await fetch(r.webPath)).blob();
+      await addAttachFiles([blob]);
+      toast('사진을 찍었어요 · 갤러리에도 저장했어요 📷');
+    } catch (err) {
+      if (!/cancel/i.test(err?.message || '')) toast('사진을 찍지 못했어요: ' + (err?.message || err));
+    }
+  } else $('#cameraFile').click();
+});
+for (const id of ['#cameraFile', '#attachFile'])
+  $(id).addEventListener('change', async (e) => {
+    const files = await readNow(e.target);
+    if (files?.length) addAttachFiles(files);
+  });
+$('#attachFile').closest('label').addEventListener('click', async (e) => {
+  if (!(native && window.Capacitor?.Plugins?.Camera)) return;
+  e.preventDefault();
+  try {
+    const files = await pickFromGallery();
+    if (files.length) addAttachFiles(files);
+  } catch (err) {
+    if (!/cancel/i.test(err?.message || '')) toast('사진을 고르지 못했어요');
+  }
+});
+
 function openEditor(date, entry = null) {
   editing = entry;
   form.reset();
@@ -306,6 +417,18 @@ function openEditor(date, entry = null) {
     setTimeout(() => toast('쓰던 내용을 이어서 보여 드려요 📝'), 300);
   }
   setKind(form.kind.value);
+  editorAuthor.set(entry ? entry.author || '' : myName());
+  attachOld = entry ? store.photos({ entryId: entry.id }) : [];
+  attachRemoved = new Set();
+  attachNew = [];
+  renderAttach();
+  // 붙이던 사진이 임시저장돼 있으면 이어서
+  kv.get('write-photos').then((w) => {
+    if (w && (w.editingId || null) === (entry?.id || null) && w.photos?.length && editor.open && !attachNew.length) {
+      attachNew = w.photos;
+      renderAttach();
+    }
+  });
   saveWriteDraft(true);
   $('#editorDelete').hidden = !entry;
   updateEditorDay();
@@ -332,9 +455,10 @@ editor.addEventListener('close', () => {
   if (d) draft.set('write', { ...d, open: false });
 });
 /** 앱이 새로 열렸을 때 쓰다 만 쓰기창이 있으면 다시 열기 */
-function restoreWrite() {
+async function restoreWrite() {
   const d = draft.get('write');
-  if (!d?.open || !(d.text || d.note)) return;
+  const w = await kv.get('write-photos');
+  if (!d?.open || !(d.text || d.note || w?.photos?.length)) return;
   const entry = d.editingId ? store.all().find((e) => e.id === d.editingId) : null;
   if (d.editingId && !entry) return draft.clear('write');
   openEditor(d.date, entry);
@@ -347,6 +471,8 @@ form.date.addEventListener('input', updateEditorDay);
 for (const r of $$('input[name=kind]', form)) r.addEventListener('change', () => setKind(form.kind.value));
 $('#editorCancel').addEventListener('click', () => {
   draft.clear('write');
+  kv.del('write-photos');
+  attachNew = [];
   closeEditor();
 });
 form.addEventListener('submit', async (e) => {
@@ -354,9 +480,19 @@ form.addEventListener('submit', async (e) => {
   // 시간은 따로 고르지 않고, 처음 저장한 순간의 시간을 쓴다 (고칠 때는 그대로)
   const body = { date: form.date.value, kind: form.kind.value, text: form.text.value, note: form.note.value, time: editing ? editing.time : nowTimeSeoul() };
   if (body.date < BIRTH_DATE) return toast('태어난 날 이후로 골라 주세요');
+  const author = editorAuthor.get();
+  if (author) body.author = author;
+  // 사진만 있고 글이 없으면 '사진' 이라고 적어 둔다
+  if (!body.text.trim() && (attachNew.length || attachOld.length - attachRemoved.size > 0)) body.text = '📷 사진';
   try {
-    if (editing) await store.update(editing.id, body);
-    else await store.put([body]);
+    const saved = editing ? await store.update(editing.id, body) : (await store.put([body]))[0];
+    for (const ph of attachNew) await store.addPhoto({ ...ph, date: saved.date, entryId: saved.id, author: saved.author });
+    for (const id of attachRemoved) await store.removePhoto(id);
+    // 날짜·기록자를 바꿨으면 붙은 사진도 같이
+    for (const ph of attachOld.filter((x) => !attachRemoved.has(x.id)))
+      if (ph.date !== saved.date || ph.author !== saved.author) await store.updatePhoto(ph.id, { date: saved.date, author: saved.author });
+    attachNew = [];
+    kv.del('write-photos');
     draft.clear('write');
     closeEditor();
     toast('저장했어요 💛');
@@ -368,7 +504,9 @@ form.addEventListener('submit', async (e) => {
 });
 $('#editorDelete').addEventListener('click', async () => {
   if (!editing || !confirm('이 기록을 지울까요?')) return;
+  for (const ph of store.photos({ entryId: editing.id })) await store.removePhoto(ph.id); // 붙은 사진도 같이
   await store.remove(editing.id);
+  kv.del('write-photos');
   draft.clear('write');
   closeEditor();
   toast('지웠어요');
@@ -493,7 +631,7 @@ async function renderCalendar() {
     title: selectedDate === BIRTH_DATE ? '👶 민한이가 태어난 날' : '이 날의 기록이 없어요',
     empty: selectedDate === BIRTH_DATE ? '2016년 2월 22일 오전 11시 55분' : '오늘의 일을 기록하고<br>소중한 추억을 남겨보세요! 💗',
   });
-  renderPhotoGrid($('#dayPhotos'), store.photos({ date: selectedDate }));
+  renderPhotoGrid($('#dayPhotos'), store.photos({ date: selectedDate, standalone: true }));
 }
 
 // ---------------- 사진 (기록과 따로) ----------------
@@ -511,7 +649,7 @@ function renderPhotoGrid(container, list, { showDate = false } = {}) {
 function renderGallery() {
   const wrap = $('#gallery');
   wrap.replaceChildren();
-  const list = store.photos();
+  const list = store.photos({ standalone: true });
   if (!list.length) {
     wrap.innerHTML = `<p class="photo-empty-title">아직 사진이 없어요. 민한이 사진을 넣어 보세요</p>
       <label class="photo-empty"><img src="img/empty-camera.webp" alt=""><b>사진을 선택해 주세요!</b></label>`;
@@ -544,6 +682,24 @@ $('#photoFile').addEventListener('change', async (e) => {
   const files = await readNow(e.target);
   if (files) handlePhotoFiles(files);
 });
+/** 사진 메뉴: 카메라로 찍어서 바로 넣기 (폰 갤러리에도 저장) */
+$('#photoCamBtn').addEventListener('click', async () => {
+  const Camera = window.Capacitor?.Plugins?.Camera;
+  if (native && Camera?.takePhoto) {
+    try {
+      const r = await Camera.takePhoto({ quality: 90, saveToGallery: true, correctOrientation: true });
+      const blob = await (await fetch(r.webPath)).blob();
+      handlePhotoFiles([new File([blob], 'camera.jpg', { type: blob.type || 'image/jpeg', lastModified: Date.now() })]);
+    } catch (err) {
+      if (!/cancel/i.test(err?.message || '')) toast('사진을 찍지 못했어요: ' + (err?.message || err));
+    }
+  } else $('#photoCamFile').click();
+});
+$('#photoCamFile').addEventListener('change', async (e) => {
+  const files = await readNow(e.target);
+  if (files?.length) handlePhotoFiles(files);
+});
+
 async function handlePhotoFiles(files) {
   if (!files.length) return;
   const list = $('#photoAddList');
@@ -608,6 +764,8 @@ async function openPhoto(p) {
   pform.date.value = p.date;
   pform.date.min = BIRTH_DATE;
   pform.caption.value = p.caption || '';
+  photoAuthor.set(p.author || '');
+  $('#photoOfEntry').hidden = !p.entryId;
   $('#photoViewDay').innerHTML = `${dayText(p.date)} · ${ageText(p.date)}${p.author ? ` · ${esc(p.author)}` : ''}`;
   openDialog(photoView);
   requestAnimationFrame(() => growAll(photoView));
@@ -625,7 +783,8 @@ pform.date.addEventListener('input', () => {
 pform.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!pform.date.value || pform.date.value < BIRTH_DATE) return toast('날짜를 확인해 주세요');
-  await store.updatePhoto(viewing.id, { date: pform.date.value, caption: pform.caption.value });
+  const author = photoAuthor.get();
+  await store.updatePhoto(viewing.id, { date: pform.date.value, caption: pform.caption.value, ...(author ? { author } : {}) });
   toast('저장했어요');
   closeDialog(photoView);
 });
@@ -1454,13 +1613,13 @@ const allFilter = (() => {
     const v = JSON.parse(localStorage.getItem(ALL_KEY) || 'null');
     // 예전에 저장한 조건에는 '웃긴 말'이 없어서 켜 준다
     if (v && !v.kinds.includes('funny')) v.kinds.push('funny');
-    if (v) return { ages: new Set(v.ages), kinds: new Set(v.kinds), authors: new Set(v.authors), order: v.order || 'new' };
+    if (v) return { ages: new Set(v.ages), kinds: new Set(v.kinds), authors: new Set(v.authors), order: v.order || 'new', withPhoto: !!v.withPhoto };
   } catch {}
   return { ages: new Set(), kinds: new Set(['say', 'funny', 'did', 'photo']), authors: new Set(), order: 'new' };
 })();
 function saveAllFilter() {
   try {
-    localStorage.setItem(ALL_KEY, JSON.stringify({ ages: [...allFilter.ages], kinds: [...allFilter.kinds], authors: [...allFilter.authors], order: allFilter.order }));
+    localStorage.setItem(ALL_KEY, JSON.stringify({ ages: [...allFilter.ages], kinds: [...allFilter.kinds], authors: [...allFilter.authors], order: allFilter.order, withPhoto: !!allFilter.withPhoto }));
   } catch {}
 }
 const ageOf = (date) => age(date).years;
@@ -1501,9 +1660,23 @@ function renderAll() {
   const maxAge = ageOf(today);
   const fAge = $('#fAge');
   fAge.replaceChildren(chip('전체', !allFilter.ages.size, () => (snapAll(), allFilter.ages.clear(), saveAllFilter(), renderAll())));
-  for (let a = 0; a <= maxAge; a++) fAge.append(chip(`${a}세`, allFilter.ages.has(a), () => toggleIn(allFilter.ages, a)));
+  // 기록이 있는 나이만 (새 나이에 기록이 생기면 저절로 늘어남)
+  const agesWith = [...new Set([...entries, ...photos].map((x) => ageOf(x.date)))].filter((a) => a >= 0 && a <= maxAge).sort((a, b) => a - b);
+  for (const a of agesWith) fAge.append(chip(`${a}세`, allFilter.ages.has(a), () => toggleIn(allFilter.ages, a)));
   const fKind = $('#fKind');
-  fKind.replaceChildren();
+  const KINDS_ALL = ['say', 'funny', 'did', 'photo'];
+  fKind.replaceChildren(
+    chip('전체', KINDS_ALL.every((k) => allFilter.kinds.has(k)), () => {
+      snapAll();
+      allFilter.kinds = new Set(KINDS_ALL);
+      saveAllFilter();
+      renderAll();
+    }),
+  );
+  $('#fPhoto').replaceChildren(
+    chip('전체', !allFilter.withPhoto, () => (snapAll(), (allFilter.withPhoto = false), saveAllFilter(), renderAll())),
+    chip('📎 사진 있는 글만', !!allFilter.withPhoto, () => (snapAll(), (allFilter.withPhoto = true), saveAllFilter(), renderAll())),
+  );
   for (const [k, l] of [['say', '💬 한 말'], ['funny', '😂 웃긴 말'], ['did', '🌱 한 일'], ['photo', '📷 사진']])
     fKind.append(
       chip(l, allFilter.kinds.has(k), () => {
@@ -1528,8 +1701,11 @@ function renderAll() {
     (!allFilter.authors.size || allFilter.authors.has(author || '')) &&
     (!q || String(text).toLowerCase().includes(q));
   const items = [
-    ...entries.filter((e) => allFilter.kinds.has(e.kind || 'say') && pass(e.date, e.author, `${e.text} ${e.note}`)).map((e) => ({ type: 'entry', date: e.date, key: `${e.time || '99:99'}${e.createdAt}`, e })),
-    ...(allFilter.kinds.has('photo') ? photos.filter((p) => pass(p.date, p.author, p.caption)).map((p) => ({ type: 'photo', date: p.date, key: `zz${p.createdAt}`, p })) : []),
+    ...entries
+      .filter((e) => allFilter.kinds.has(e.kind || 'say') && pass(e.date, e.author, `${e.text} ${e.note}`))
+      .filter((e) => !allFilter.withPhoto || store.photos({ entryId: e.id }).length)
+      .map((e) => ({ type: 'entry', date: e.date, key: `${e.time || '99:99'}${e.createdAt}`, e })),
+    ...(allFilter.kinds.has('photo') && !allFilter.withPhoto ? photos.filter((p) => !p.entryId && pass(p.date, p.author, p.caption)).map((p) => ({ type: 'photo', date: p.date, key: `zz${p.createdAt}`, p })) : []),
   ];
   // 날짜별로 묶기
   const byDate = new Map();
@@ -1562,7 +1738,15 @@ function renderAll() {
         const e = it.e;
         const el = document.createElement('div');
         el.className = `all-item kind-${e.kind || 'say'}`;
-        el.innerHTML = `<div class="all-text">${mark(e.text)}</div>${e.note ? `<div class="all-note">${mark(e.note)}</div>` : ''}${e.author ? `<span class="all-author">${esc(e.author)}</span>` : ''}`;
+        const pics = store.photos({ entryId: e.id });
+        el.innerHTML = `<div class="all-text">${mark(e.text)}</div>${e.note ? `<div class="all-note">${mark(e.note)}</div>` : ''}${
+          pics.length ? `<div class="all-pics">${pics.map((ph) => `<img src="${ph.thumb}" data-pid="${ph.id}" alt="">`).join('')}</div>` : ''
+        }${e.author ? `<span class="all-author">${esc(e.author)}</span>` : ''}`;
+        for (const im of $$('.all-pics img', el))
+          im.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            openPhoto(pics.find((x) => x.id === im.dataset.pid));
+          });
         el.addEventListener('click', () => openEditor(e.date, e));
         box.append(el);
       } else {
