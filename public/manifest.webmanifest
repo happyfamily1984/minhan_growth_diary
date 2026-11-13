@@ -1,9 +1,0 @@
-{
-  "name": "민한이 성장일기",
-  "short_name": "민한일기",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#f6efe4",
-  "theme_color": "#f6efe4",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
-}

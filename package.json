@@ -1,13 +1,26 @@
 {
   "name": "minhan-growth-diary",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "민한이가 한 말을 날짜별로 기록하는 성장일기",
+  "description": "민한이가 한 말과 한 일을 날짜별로 기록하는 성장일기 앱",
   "type": "module",
-  "engines": { "node": ">=22.9" },
   "scripts": {
-    "start": "node --env-file-if-exists=.env server/index.js",
-    "dev": "node --watch --env-file-if-exists=.env server/index.js",
-    "test": "node --test test/*.test.js"
+    "vendor": "node scripts/vendor.mjs",
+    "serve": "npm run vendor && node scripts/serve.mjs",
+    "test": "node --test test/*.test.js",
+    "android:sync": "npm run vendor && npx cap sync android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
+    "@tesseract.js-data/kor": "^1.0.0",
+    "tesseract.js": "^5.1.1",
+    "tesseract.js-core": "^5.1.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2"
   }
 }

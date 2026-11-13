@@ -1,0 +1,6 @@
+{
+  "appId": "com.happyfamily.minhandiary",
+  "appName": "민한이 성장일기",
+  "webDir": "www",
+  "android": { "allowMixedContent": false }
+}

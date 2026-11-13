@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dayNumber, dateOfDay, age } from '../public/shared.js';
+import { dayNumber, dateOfDay, age } from '../www/shared.js';
 
 test('태어난 날은 1일째', () => {
   assert.equal(dayNumber('2016-02-22'), 1);
