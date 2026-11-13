@@ -555,3 +555,18 @@ textarea.grow, .pick .pick-text.grow, .field textarea.grow { resize: none !impor
 .pick-datecrop { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-family: var(--font-title); font-size: 0.85rem; color: #5b4c42; }
 .pick-datecrop img { max-height: 44px; max-width: 70%; border-radius: 10px; border: 1px solid var(--line); }
 .pick-datecrop.none { color: var(--muted); font-family: inherit; }
+
+/* ---------- 사진 설명: 사진 아래에, 잘리지 않게 ---------- */
+.photo-grid { align-items: start; }
+.photo-thumb {
+  aspect-ratio: auto; overflow: visible; background: none; box-shadow: none;
+  display: flex; flex-direction: column; text-align: left;
+}
+.photo-thumb img {
+  aspect-ratio: 1 / 1; height: auto; border-radius: 14px; box-shadow: var(--shadow); background: var(--line);
+}
+.photo-thumb span {
+  position: static; background: none; color: var(--ink); padding: 5px 3px 2px;
+  font-size: 0.82rem; line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip;
+  word-break: keep-all; overflow-wrap: anywhere;
+}
