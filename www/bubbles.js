@@ -165,7 +165,12 @@ export function bubblesFromOcr(lines, img, today, bin = null, opts = {}) {
       // 글씨 없이 부호만 남은 줄(프로필 사진이 '@' 로 읽힌 것 등)은 버린다
       if (!kept.length || kept.every((w) => !/[가-힣a-zA-Z0-9]/.test(w.text))) continue;
       // 한글은 글자 조각마다 낱말로 나오기도 해서, 실제로 띄어진 곳에만 띄어쓰기를 넣는다
-      const joined = bin ? spaceByPixels(kept, line.bbox, bin) : spaceByBoxes(kept, line.bbox);
+      // 키워서 따로 읽은 말풍선은 글자 읽기 도구의 띄어쓰기가 정확해서 그대로 쓴다
+      const joined = opts.trustSpaces
+        ? joinBySpaces(kept, words, line.text)
+        : bin
+          ? spaceByPixels(kept, line.bbox, bin)
+          : spaceByBoxes(kept, line.bbox);
       const h = line.bbox.y1 - line.bbox.y0;
       lineH = lineH ? (lineH + h) / 2 : h;
       if (prevBottom !== null && line.bbox.y0 - prevBottom > lineH * 0.9 && textLines.length) textLines.push('');
@@ -178,7 +183,8 @@ export function bubblesFromOcr(lines, img, today, bin = null, opts = {}) {
       .replace(/\s*(?:[<>@©®◎]+\s*\d*\s*)+$/g, '')
       .trim();
     if (!text) continue;
-    const above = dates.filter((d) => d.y < r.y0).pop();
+    // 말풍선 위쪽에 겹쳐 걸린 날짜 표시도 그 말풍선 날짜로 본다
+    const above = dates.filter((d) => d.y < r.y0 + Math.min(70, (r.y1 - r.y0) * 0.4)).pop();
     const cx = (r.x0 + r.x1) / 2;
     out.push({ text, date: above?.date || null, time, side: cx < W / 2 ? 'left' : 'right', from: '', rect: r, dateBox: above?.box || null });
   }
@@ -334,4 +340,124 @@ export function gapRegions(rects, img) {
     prev = Math.max(prev, r.y1 ?? prev);
   }
   return out;
+}
+
+/**
+ * 이미 찾은 날짜 표시의 바탕색을 배워서, 같은 색 띠가 화면 가운데에 있는 곳을 더 찾는다.
+ * (말풍선 위에 겹쳐 걸려서 글자 읽기로는 못 찾은 날짜 표시용)
+ */
+export function findPillsByColor(img, known) {
+  const { data, width: W, height: H } = img;
+  known = known.filter(Boolean);
+  if (!known.length) return [];
+  // 1) 바탕색 배우기: 날짜 표시마다 흰 글씨가 아닌 점들의 가운데 값 (배경이 위아래로 색이 달라서 여러 개)
+  // 날짜 표시는 항상 가운데에 있으니, 가운데 좁은 부분만 본다 (옆의 배경 무늬가 섞이지 않게)
+  const half = Math.round(W * 0.04);
+  const med = (a) => a.sort((x, y) => x - y)[Math.floor(a.length / 2)];
+  const colors = [];
+  for (const k of known) {
+    const rs = [], gs = [], bs = [];
+    for (let y = Math.max(0, Math.floor(k.y0)); y <= Math.min(H - 1, k.y1); y += 2)
+      for (let x = Math.round(W / 2) - half; x <= Math.round(W / 2) + half; x += 2) {
+        const i = (y * W + x) * 4;
+        if (lum(data[i], data[i + 1], data[i + 2]) < 225) rs.push(data[i]), gs.push(data[i + 1]), bs.push(data[i + 2]);
+      }
+    if (rs.length >= 15) colors.push([med(rs), med(gs), med(bs)]);
+  }
+  // 흰 말풍선 위에 걸친 날짜 표시는 색과 상관없이 '흰 바탕 사이의 색 띠'로도 찾는다
+  // (검은 글씨는 빼고, 색이 있는 중간 밝기만: 날짜 표시 바탕)
+  const onWhite = scanPills(img, (i) => {
+    const l = lum(data[i], data[i + 1], data[i + 2]);
+    const sat = Math.max(data[i], data[i + 1], data[i + 2]) - Math.min(data[i], data[i + 1], data[i + 2]);
+    return l > 95 && l < 215 && sat > 30;
+  });
+  if (!colors.length) return onWhite;
+  const match = (i) =>
+    colors.some((pc) => Math.abs(data[i] - pc[0]) + Math.abs(data[i + 1] - pc[1]) + Math.abs(data[i + 2] - pc[2]) < 62);
+  const byColor = scanPills(img, match);
+  return [...byColor, ...onWhite.filter((b) => !byColor.some((c) => Math.abs(c.y0 - b.y0) < 30))];
+}
+
+/** 화면 가운데에서 match 에 맞는 점이 띠처럼 이어지는 곳을 상자로 */
+function scanPills(img, match) {
+  const { width: W, height: H } = img;
+  const data = img.data;
+  // 2) 줄마다 가운데에서 그 색 띠가 얼마나 넓게 이어지는지
+  const cx = Math.round(W / 2);
+  const gapMax = Math.round(W * 0.03);
+  const rows = [];
+  const seeded = new Set(); // 가운데가 그 색인 줄 (띠가 배경과 섞여 너무 넓어도)
+  for (let y = Math.floor(H * 0.075); y < H * 0.93; y++) {
+    const row = y * W;
+    let seed = -1;
+    for (let d = 0; d <= W * 0.03 && seed < 0; d++) {
+      if (match((row + cx - d) * 4)) seed = cx - d;
+      else if (match((row + cx + d) * 4)) seed = cx + d;
+    }
+    if (seed < 0) continue;
+    seeded.add(y);
+    const extend = (dir) => {
+      let x = seed, last = seed, gap = 0;
+      while (x > 0 && x < W - 1 && gap <= gapMax) {
+        x += dir;
+        if (match((row + x) * 4)) (last = x), (gap = 0);
+        else gap++;
+      }
+      return last;
+    };
+    const left = extend(-1), right = extend(1);
+    const w = right - left, c = (left + right) / 2;
+    if (w >= W * 0.08 && w <= W * 0.5 && Math.abs(c - W / 2) < W * 0.06) rows.push({ y, left, right });
+  }
+  // 3) 이어진 줄들을 상자로
+  const out = [];
+  let cur = null;
+  const close = () => {
+    if (!cur) return;
+    // 좌우는 줄들의 가운데 값 (배경과 섞여 넓게 잡힌 몇 줄에 끌려가지 않게)
+    const mid = (a) => a.sort((x, y) => x - y)[Math.floor(a.length / 2)];
+    out.push({ x0: mid(cur.ls), x1: mid(cur.rs), y0: cur.y0, y1: cur.y1 });
+  };
+  for (const r of rows) {
+    if (cur && r.y - cur.y1 <= 3) {
+      cur.y1 = r.y;
+      cur.ls.push(r.left);
+      cur.rs.push(r.right);
+    } else {
+      close();
+      cur = { ls: [r.left], rs: [r.right], y0: r.y, y1: r.y };
+    }
+  }
+  close();
+  // 배경과 색이 비슷해서 빠진 위아래 줄까지 넓힌다 (말풍선 위에 반쯤 걸친 날짜 표시)
+  for (const b of out) {
+    const h = b.y1 - b.y0;
+    let up = 0;
+    while (up < h * 0.8 && seeded.has(b.y0 - 1)) b.y0--, up++;
+    let down = 0;
+    while (down < h * 0.8 && seeded.has(b.y1 + 1)) b.y1++, down++;
+  }
+  return out.filter((b) => b.y1 - b.y0 >= H * 0.012 && b.y1 - b.y0 <= H * 0.06);
+}
+
+/**
+ * 줄 글자(line.text)의 띄어쓰기대로 낱말을 잇는다.
+ * 낱말 목록은 글자 조각으로 잘게 나뉘어 있어도, 줄 글자에는 띄어쓰기가 바르게 들어 있다.
+ */
+function joinBySpaces(kept, words, lineText) {
+  const text = String(lineText || '');
+  const spaceBefore = new Map();
+  let pos = 0;
+  for (const w of words) {
+    const t = String(w.text).trim();
+    let sp = false;
+    while (pos < text.length && /\s/.test(text[pos])) (sp = true), pos++;
+    const at = text.indexOf(t, pos);
+    if (at >= 0 && at - pos <= 2) {
+      if (/\s/.test(text.slice(pos, at))) sp = true;
+      pos = at + t.length;
+    }
+    spaceBefore.set(w, sp);
+  }
+  return kept.map((w, i) => (i > 0 && spaceBefore.get(w) ? ' ' : '') + String(w.text).trim()).join('');
 }

@@ -4,7 +4,7 @@ import { store as localStore } from './local-store.js';
 import { shrinkPhoto, photoTakenDate, decodeImage } from './photo.js';
 import { parseText, linesToBubbles, parseDateLine } from './parse.js';
 import { binarize } from './ocr-prep.js';
-import { bubblesFromOcr, findBubbles, datePillCandidates, pillCanvas, gapRegions } from './bubbles.js';
+import { bubblesFromOcr, findBubbles, datePillCandidates, pillCanvas, gapRegions, findPillsByColor } from './bubbles.js';
 import { kv } from './kv.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -791,9 +791,9 @@ async function ocrImages(files) {
         const bubbleLines = [];
         for (const [k, r] of rects.entries()) {
           bar.style.width = `${Math.round(((k + 1) / rects.length) * 100)}%`;
-          bubbleLines.push(...(await readBubble(worker, bin, r)));
+          bubbleLines.push(...(await readBubble(worker, original, r)));
         }
-        found = bubblesFromOcr(lines, original, todaySeoul(), bin, { rects, bubbleLines, dates });
+        found = bubblesFromOcr(lines, original, todaySeoul(), bin, { rects, bubbleLines, dates, trustSpaces: true });
       }
       found ||= linesToBubbles(lines, width, todaySeoul());
       const color = document.createElement('canvas');
@@ -820,31 +820,44 @@ async function ocrImages(files) {
 }
 
 /** 그림 일부를 잘라 그 부분만 읽고, 위치를 원래 그림 기준으로 되돌린다 */
-async function ocrRegion(worker, src, r, psm) {
+async function ocrRegion(worker, src, r, psm, scale = 1) {
   const pad = 8;
   const x = Math.max(0, Math.floor(r.x0 - pad));
   const y = Math.max(0, Math.floor(r.y0 - pad));
   const w = Math.min(src.width - x, Math.ceil(r.x1 - r.x0 + pad * 2));
   const h = Math.min(src.height - y, Math.ceil(r.y1 - r.y0 + pad * 2));
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  if (src instanceof ImageData) c.getContext('2d').putImageData(src, -x, -y);
-  else c.getContext('2d').drawImage(src, x, y, w, h, 0, 0, w, h);
+  const part = document.createElement('canvas');
+  part.width = w;
+  part.height = h;
+  part.getContext('2d').putImageData(src, -x, -y);
+  let c = part;
+  if (scale !== 1) {
+    // 글씨가 작으면 잘못 읽어서, 키운 다음 흑백으로 바꿔 읽는다
+    c = document.createElement('canvas');
+    c.width = Math.round(w * scale);
+    c.height = Math.round(h * scale);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(part, 0, 0, c.width, c.height);
+    const im = ctx.getImageData(0, 0, c.width, c.height);
+    binarize(im);
+    ctx.putImageData(im, 0, 0);
+  }
   await worker.setParameters({ tessedit_pageseg_mode: psm });
   const { data } = await worker.recognize(c, {}, { blocks: true });
   await worker.setParameters({ tessedit_pageseg_mode: '4' });
-  const move = (b) => ({ x0: b.x0 + x, x1: b.x1 + x, y0: b.y0 + y, y1: b.y1 + y });
+  const move = (b) => ({ x0: b.x0 / scale + x, x1: b.x1 / scale + x, y0: b.y0 / scale + y, y1: b.y1 / scale + y });
   return ocrLines(data).map((l) => ({ ...l, bbox: move(l.bbox), words: (l.words || []).map((wd) => ({ ...wd, bbox: move(wd.bbox) })) }));
 }
 
 /** 말풍선 하나를 따로 읽는다. 잘 안 읽혔으면(영어가 섞인 경우 등) 한글+영어 사전으로 한 번 더 읽어 나은 쪽 */
-async function readBubble(worker, bin, r) {
-  const kor = await ocrRegion(worker, bin, r, '6');
-  if (!kor.some((l) => (l.confidence ?? 100) < 72)) return kor;
+async function readBubble(worker, original, r) {
+  // 원래 색 그림에서 잘라 2배로 키워 읽는다 (작은 글씨 오타 줄이기)
+  const kor = await ocrRegion(worker, original, r, '6', 2);
+  if (!kor.some((l) => (l.confidence ?? 100) < 72 || looksGarbled(l.text))) return kor;
   let alt;
   try {
-    alt = await ocrRegion(await getBilingualWorker(), bin, r, '6');
+    alt = await ocrRegion(await getBilingualWorker(), original, r, '6', 2);
   } catch (err) {
     console.error('eng', err);
     return kor;
@@ -855,26 +868,42 @@ async function readBubble(worker, bin, r) {
       .map((a) => ({ a, o: Math.min(a.bbox.y1, line.bbox.y1) - Math.max(a.bbox.y0, line.bbox.y0) }))
       .sort((x, y) => y.o - x.o)[0];
     if (!twin || twin.o <= 0) return line;
-    return looksEnglish(twin.a.text) && looksGarbled(line.text) ? fixEnglish(twin.a) : line;
+    const better = (twin.a.confidence ?? 0) > (line.confidence ?? 0);
+    return better && looksEnglish(twin.a.text) && looksGarbled(line.text) ? fixEnglish(twin.a) : line;
   });
 }
 
 /** 진짜 영어 낱말(소문자 2글자 이상)이 있고, 대문자 뒤범벅(AHOOFE 같은 것)이 아닌지 */
+/** 줄 끝의 조회수·시간 부분(👁 6 오후 9:02 가 '< 6 오후 902' 처럼 읽힌 것)은 떼고 본다 */
+const dropTail = (t) =>
+  String(t)
+    .trim()
+    .replace(/\s*[<>＜＞《》«»‹›〈〉@©®◎。].*$/u, '')
+    .replace(/\s*(?:오전|오후|오호|오흐|ㅇㅎ)\s*[\d:;.]+.*$/, '')
+    .trim();
 function looksEnglish(text) {
-  const words = String(text).match(/[A-Za-z]{2,}/g) || [];
-  const lower = words.filter((w) => /^[a-z]+$/.test(w) || /^[A-Z][a-z]+$/.test(w));
+  const words = dropTail(text).match(/[A-Za-z]{2,}/g) || [];
+  const lower = words.filter((w) => /[a-z]{2,}/.test(w));
   const caps = words.filter((w) => /^[A-Z]{3,}$/.test(w));
   return lower.length >= 2 && caps.length === 0;
 }
 /** 한글 사전으로 읽은 줄이 숫자·부호 뒤범벅인지 (영어를 한글로 잘못 읽은 경우) */
 function looksGarbled(text) {
-  const t = String(text);
+  const t = dropTail(text);
   return /[<>]|\d{3,}|\d[가-힣]\d|[가-힣]\d{2,}[가-힣<]/.test(t);
 }
 /** 영어로 읽을 때 자주 틀리는 것 바로잡기: 맨 앞 '|' → 'I' */
 function fixEnglish(line) {
   const words = (line.words || []).map((w, i) => (i === 0 && /^[|l]$/.test(w.text) ? { ...w, text: 'I' } : w));
   return { ...line, words, text: String(line.text).replace(/^\|\s/, 'I ') };
+}
+
+/** 한 줄짜리 그림 읽기 */
+async function readLine(worker, canvas) {
+  await worker.setParameters({ tessedit_pageseg_mode: '7' });
+  const { data } = await worker.recognize(canvas);
+  await worker.setParameters({ tessedit_pageseg_mode: '4' });
+  return String(data.text || '').replace(/\s+/g, ' ').trim();
 }
 
 /** 가운데 색 바탕 글씨(날짜 표시)만 잘라 다시 읽어 날짜를 찾는다 */
@@ -895,6 +924,15 @@ async function readDatePills(worker, lines, original, rects) {
     const d = m ? parseDateLine(m[0], todaySeoul()) : parseDateLine(text, todaySeoul());
     if (d && !out.some((x) => Math.abs(x.y - box.y0) < 40 && x.date === d)) out.push({ y: box.y0, date: d, box: pad ? box : tightBox(original, box) });
   }
+  // 찾은 날짜 표시의 색을 배워서, 말풍선에 겹쳐 걸린 날짜 표시를 더 찾는다
+  for (const box of findPillsByColor(original, out.map((o) => o.box))) {
+    if (out.some((o) => Math.abs(o.y - box.y0) < 30)) continue;
+    const text = await readLine(worker, pillCanvas(original, box, false));
+    const m = text.match(/(?:(\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+    const d = m ? parseDateLine(m[0], todaySeoul()) : null;
+    if (d) out.push({ y: box.y0, date: d, box });
+  }
+  out.sort((a, b) => a.y - b.y);
   return out;
 }
 
