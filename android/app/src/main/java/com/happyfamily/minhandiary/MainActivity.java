@@ -27,6 +27,9 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getBridge().getWebView().addJavascriptInterface(new ShareBridge(), "AndroidShare");
+        // 폰 글꼴 크기를 아주 크게 해 두어도 화면이 깨지지 않도록 최대 115% 까지만 키운다
+        android.webkit.WebSettings ws = getBridge().getWebView().getSettings();
+        if (ws.getTextZoom() > 115) ws.setTextZoom(115);
         handleShare(getIntent());
     }
 

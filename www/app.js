@@ -54,9 +54,9 @@ function entryCard(e, { showDate = false } = {}) {
       <span>${dayText(e.date)}</span>
       ${showDate ? `<span>${ageText(e.date)}</span>` : ''}
       ${e.time ? `<span>${esc(e.time)}</span>` : ''}
-      ${e.author ? `<span class="author">${authorLabel(e.author)}</span>` : ''}
       ${src ? `<span>${src}</span>` : ''}
-    </div>`;
+    </div>
+    ${e.author ? `<span class="author-mini">${esc(e.author)}</span>` : ''}`;
   el.addEventListener('click', () => openEditor(e.date, e));
   return el;
 }
@@ -450,7 +450,7 @@ async function openPhoto(p) {
   pform.date.value = p.date;
   pform.date.min = BIRTH_DATE;
   pform.caption.value = p.caption || '';
-  $('#photoViewDay').innerHTML = `${dayText(p.date)} · ${ageText(p.date)}${p.author ? ` · ${authorLabel(p.author)}` : ''}`;
+  $('#photoViewDay').innerHTML = `${dayText(p.date)} · ${ageText(p.date)}${p.author ? ` · ${esc(p.author)}` : ''}`;
   openDialog(photoView);
   try {
     const full = await store.photoData(p.id);

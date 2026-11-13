@@ -32,7 +32,7 @@ body {
   color: var(--ink);
   font-family: 'Gowun Dodum', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
   font-weight: 400;
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1.55;
   -webkit-tap-highlight-color: transparent;
 }
@@ -467,4 +467,36 @@ dialog.sheet {
   border: 2px solid var(--orange-2); background: var(--cream); border-radius: 14px; padding: 10px 12px;
   font-size: 1.05rem; text-align: center; outline: none;
 }
-.entry-meta .author { background: var(--blue-soft); color: #2c5fb3; border-radius: 8px; padding: 0 8px; font-family: var(--font-title); }
+/* 기록자: 카드 오른쪽 아래에 작고 연하게 */
+.author-mini { position: absolute; right: 14px; bottom: 8px; font-size: 0.72rem; color: #b3a79c; }
+.entry { padding-bottom: 20px; }
+
+/* ---------- 작은 폰 · 큰 글씨 설정에서도 한 줄로 (글씨 크기를 화면 너비에 맞춰 줄임) ---------- */
+body { word-break: keep-all; overflow-wrap: anywhere; }
+.pill, .btn, .cal-title, .day-title, .editor-day, .dday .lbl, .dday b, .hero-day, .date-pill, .badge { white-space: nowrap; }
+.cal-head { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; }
+.circle-btn { width: 42px; height: 42px; }
+.cal-title { min-width: 0; justify-content: center; font-size: min(1.3rem, 5.4vw); padding: 8px 12px; gap: 6px; }
+.hero-label { font-size: min(1.9rem, 7vw); }
+.big-num { font-size: min(4rem, 14.5vw); }
+.hero .small-pill { font-size: min(0.92rem, 3.7vw); padding: 6px 14px; }
+.hero .pill-blue { font-size: min(1rem, 4.2vw); padding: 8px 16px; }
+.hero-age { font-size: min(1.25rem, 5.4vw); }
+.dday .lbl { font-size: min(0.92rem, 3.6vw); }
+.dday b { font-size: min(2rem, 8.5vw); }
+.import-actions .btn { font-size: min(1.05rem, 4.1vw); padding: 14px 6px; }
+.editor-day { font-size: min(1.05rem, 4vw); }
+.date-pill input { font-size: min(1.15rem, 4.6vw); width: auto; min-width: 0; }
+.search-info { font-size: min(1rem, 4vw); }
+.cal-foot { font-size: min(0.95rem, 3.8vw); }
+.day-title { font-size: min(1.2rem, 5vw); }
+.day-sub { font-size: min(1rem, 4vw); }
+.day-sub b { font-size: min(1.6rem, 6.4vw); }
+.stack-btns .btn { font-size: min(1.05rem, 4.2vw); }
+.write-box { font-size: min(1.08rem, 4.4vw); }
+.section-title { font-size: min(1.15rem, 4.8vw); }
+#roleBtn { white-space: normal; }
+.hero .s1 { top: 50px; left: 6px; font-size: min(2.2rem, 8vw); }
+.hero .s3 { top: 56px; right: 8px; font-size: min(1.6rem, 6vw); }
+.cloud-box img { width: min(110px, 24vw); }
+.cloud-box p { font-size: min(0.98rem, 3.9vw); }
