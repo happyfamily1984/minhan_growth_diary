@@ -25,6 +25,8 @@ const ageText = (ymd) => {
   const a = age(ymd);
   return `만 ${a.years}살 ${a.months}개월 ${a.days}일`;
 };
+const nowTimeSeoul = () =>
+  new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
 const dayText = (d) => (d >= BIRTH_DATE ? `탄생 ${dayNumber(d).toLocaleString()}일째` : '태어나기 전');
 
 function toast(msg) {
@@ -59,7 +61,8 @@ function entryCard(e, { showDate = false } = {}) {
 function renderList(container, list, opts = {}) {
   container.replaceChildren();
   if (!list.length) {
-    container.innerHTML = `<div class="empty">${opts.empty || '아직 기록이 없어요'}</div>`;
+    const art = opts.art ? `<img class="art" src="img/${opts.art}" alt="">` : opts.face ? '<div class="face">‿</div>' : '';
+    container.innerHTML = `<div class="empty">${art}${opts.title ? `<b>${opts.title}</b>` : ''}${opts.empty || '아직 기록이 없어요'}</div>`;
     return;
   }
   for (const e of list) container.append(entryCard(e, opts));
@@ -74,9 +77,18 @@ function showView(name, { push = true } = {}) {
   currentView = name;
   for (const s of $$('.view')) s.hidden = s.id !== `view-${name}`;
   for (const b of $$('.bottom [data-view]')) b.classList.toggle('active', b.dataset.view === name);
+  $('#bannerImg').src = `img/banner-${name}.webp`;
+  const left = $('#topLeftBtn');
+  left.textContent = name === 'home' ? '🔍' : '🏠';
+  left.setAttribute('aria-label', name === 'home' ? '찾기' : '처음 화면');
   window.scrollTo(0, 0);
   refresh();
 }
+$('#topLeftBtn').addEventListener('click', () => showView(currentView === 'home' ? 'search' : 'home'));
+$('#settingsBtn').addEventListener('click', () => {
+  showView('search');
+  setTimeout(() => $('#settingsBox').scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+});
 for (const b of $$('[data-view]')) b.addEventListener('click', () => showView(b.dataset.view));
 
 // 창(dialog) 은 열 때 history 를 하나 쌓아서, 안드로이드 뒤로가기로 닫히게 한다
@@ -136,10 +148,14 @@ async function renderHome() {
   $('#heroDate').textContent = prettyDate(today);
   $('#heroDay').textContent = dayNumber(today).toLocaleString();
   $('#heroAge').textContent = ageText(today);
-  $('#heroNext').innerHTML = milestones(today).map((x) => `<span>${x.label}까지 D-${x.left}</span>`).join('');
+  $('#heroNext').innerHTML = milestones(today)
+    .slice(0, 2)
+    .map((x) => `<div class="dday ${x.label.includes('생일') ? 'pink' : ''}"><div class="lbl">${x.label.includes('생일') ? '🎁' : '🗓️'} ${x.label}까지</div><b>D-${x.left}</b></div>`)
+    .join('');
   tickLive();
   renderList($('#todayList'), await store.list({ date: today }), {
-    empty: '오늘은 아직 기록이 없어요. 민한이가 무슨 말을 하고, 무엇을 했나요?',
+    face: true,
+    empty: '오늘은 아직 기록이 없어요.<br>민한이가 무슨 말을 하고, 무엇을 했나요?',
   });
   const past = (await store.list({ md: today.slice(5) })).filter((e) => e.date < today).reverse();
   $('#memoriesWrap').hidden = !past.length;
@@ -167,7 +183,6 @@ function openEditor(date, entry = null) {
   setKind(form.kind.value);
   form.text.value = entry?.text || '';
   form.note.value = entry?.note || '';
-  form.time.value = entry?.time || '';
   $('#editorDelete').hidden = !entry;
   updateEditorDay();
   openDialog(editor);
@@ -183,7 +198,8 @@ for (const r of $$('input[name=kind]', form)) r.addEventListener('change', () =>
 $('#editorCancel').addEventListener('click', closeEditor);
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const body = { date: form.date.value, kind: form.kind.value, text: form.text.value, note: form.note.value, time: form.time.value };
+  // 시간은 따로 고르지 않고, 처음 저장한 순간의 시간을 쓴다 (고칠 때는 그대로)
+  const body = { date: form.date.value, kind: form.kind.value, text: form.text.value, note: form.note.value, time: editing ? editing.time : nowTimeSeoul() };
   if (body.date < BIRTH_DATE) return toast('태어난 날 이후로 골라 주세요');
   try {
     if (editing) await store.update(editing.id, body);
@@ -226,7 +242,7 @@ $('#calNext').addEventListener('click', () => {
   calMonth = shiftMonth(calMonth, 1);
   renderCalendar();
 });
-$('#calTitle').addEventListener('click', () => {
+$('#calTitleBtn').addEventListener('click', () => {
   selectDate(todaySeoul());
   renderCalendar();
 });
@@ -264,10 +280,12 @@ async function renderCalendar() {
   }
   $('#calFoot').textContent = `이번 달 ${monthCount}개 · 전체 ${total.toLocaleString()}개의 기록`;
   $('#dayTitle').textContent = prettyDate(selectedDate);
-  $('#daySub').textContent = selectedDate >= BIRTH_DATE ? `${dayText(selectedDate)} · ${ageText(selectedDate)}` : '';
+  $('#daySub').innerHTML = selectedDate >= BIRTH_DATE ? `탄생 <b>${dayNumber(selectedDate).toLocaleString()}</b>일째 · ${ageText(selectedDate)}` : '';
   $('#writeDay').hidden = selectedDate < BIRTH_DATE;
   renderList($('#dayList'), await store.list({ date: selectedDate }), {
-    empty: selectedDate === BIRTH_DATE ? '👶 민한이가 태어난 날 (오전 11시 55분)' : '이 날의 기록이 없어요',
+    art: 'empty-book.webp',
+    title: selectedDate === BIRTH_DATE ? '👶 민한이가 태어난 날' : '이 날의 기록이 없어요',
+    empty: selectedDate === BIRTH_DATE ? '2016년 2월 22일 오전 11시 55분' : '오늘의 일을 기록하고<br>소중한 추억을 남겨보세요! 💗',
   });
   renderPhotoGrid($('#dayPhotos'), store.photos({ date: selectedDate }));
 }
@@ -289,7 +307,9 @@ function renderGallery() {
   wrap.replaceChildren();
   const list = store.photos();
   if (!list.length) {
-    wrap.innerHTML = '<div class="empty">아직 사진이 없어요. 민한이 사진을 넣어 보세요 📷</div>';
+    wrap.innerHTML = `<p class="photo-empty-title">아직 사진이 없어요. 민한이 사진을 넣어 보세요</p>
+      <label class="photo-empty"><img src="img/empty-camera.webp" alt=""><b>사진을 선택해 주세요!</b></label>`;
+    $('.photo-empty', wrap).addEventListener('click', () => $('#photoFile').click());
     return;
   }
   const byMonth = new Map();
@@ -416,7 +436,7 @@ $('#searchInput').addEventListener('input', () => {
 async function runSearch() {
   const q = $('#searchInput').value.trim();
   const list = (await store.list({ q })).reverse();
-  $('#searchInfo').textContent = q ? `"${q}" ${list.length}개` : `전체 ${list.length}개 (최신순)`;
+  $('#searchInfo').innerHTML = q ? `"${esc(q)}" <b>${list.length}개</b>` : `<b>전체 ${list.length}개</b> (최신순)`;
   renderList($('#searchList'), list.slice(0, 300), { showDate: true, empty: '찾는 기록이 없어요' });
 }
 
@@ -722,7 +742,7 @@ async function migrateLocal() {
 
 function showSync() {
   const { offline, pending } = store.sync();
-  $('#syncState').textContent = offline ? '오프라인' : pending ? '올리는 중…' : '☁️';
+  $('#syncState').textContent = offline ? '오프라인 · 나중에 올라가요' : pending ? '올리는 중…' : '';
   $('#syncState').title = offline ? '인터넷이 연결되면 자동으로 맞춰져요' : '클라우드와 맞춰져 있어요';
 }
 let refreshTimer;

@@ -15,5 +15,15 @@ for (const f of fs.readdirSync('node_modules/tesseract.js-core')) {
   if (/^tesseract-core.*\.wasm\.js$/.test(f) && f.includes('lstm')) cp(`tesseract.js-core/${f}`, `core/${f}`);
 }
 for (const lang of ['kor']) cp(`@tesseract.js-data/${lang}/4.0.0_best_int/${lang}.traineddata.gz`, `lang/${lang}.traineddata.gz`);
+// 글꼴: 제목은 주아체, 본문은 고운돋움 (한글은 필요한 글자 조각만 그때그때 불러옴)
+for (const font of ['jua', 'gowun-dodum']) {
+  const from = path.resolve('node_modules/@fontsource', font);
+  const to = path.join(out, 'fonts', font);
+  fs.mkdirSync(path.join(to, 'files'), { recursive: true });
+  fs.copyFileSync(path.join(from, 'index.css'), path.join(to, 'index.css'));
+  for (const f of fs.readdirSync(path.join(from, 'files'))) {
+    if (f.endsWith('.woff2')) fs.copyFileSync(path.join(from, 'files', f), path.join(to, 'files', f));
+  }
+}
 buildSync({ entryPoints: ['src/firebase.js'], bundle: true, format: 'esm', minify: true, outfile: path.join(out, 'firebase.js'), logLevel: 'warning' });
 console.log('vendor 준비 완료:', out);

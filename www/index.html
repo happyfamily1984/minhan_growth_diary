@@ -3,81 +3,95 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#f6efe4" />
+  <meta name="theme-color" content="#cfe4fb" />
   <title>민한이 성장일기</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="vendor/fonts/jua/index.css" />
+  <link rel="stylesheet" href="vendor/fonts/gowun-dodum/index.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <!-- 비밀번호 화면 -->
   <div id="login" class="login" hidden>
-    <form id="loginForm" class="card">
-      <img src="icon.svg" alt="" class="login-icon" />
-      <h1>민한이 성장일기</h1>
-      <p class="muted">가족 비밀번호를 입력해 주세요</p>
+    <img class="banner-img" src="img/banner-home.webp" alt="민한이 성장일기" />
+    <form id="loginForm" class="card login-card">
+      <p class="login-msg">가족 비밀번호를 입력해 주세요</p>
       <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••" maxlength="12" required />
-      <button class="btn primary" type="submit">들어가기</button>
+      <button class="btn primary big" type="submit">들어가기</button>
       <p class="error" id="loginError"></p>
     </form>
+    <img class="land" src="img/land.webp" alt="" />
   </div>
-  <div id="loading" class="login"><div class="muted">불러오는 중…</div></div>
+  <div id="loading" class="login loading"><div class="muted">불러오는 중…</div></div>
 
   <div id="app" hidden>
-    <header class="top">
-      <div class="title">민한이 성장일기</div>
-      <span class="sync muted" id="syncState"></span>
-      <button class="icon-btn top-btn" data-view="search" aria-label="찾기">🔍</button>
+    <!-- 페이지마다 바뀌는 민한이 그림 -->
+    <header class="banner">
+      <img id="bannerImg" class="banner-img" src="img/banner-home.webp" alt="민한이 성장일기" />
+      <div class="banner-btns">
+        <button class="round-btn" id="topLeftBtn" aria-label="찾기">🔍</button>
+        <button class="round-btn" id="settingsBtn" aria-label="설정">⚙️</button>
+      </div>
+      <span class="sync" id="syncState"></span>
     </header>
 
     <main>
       <!-- 오늘 -->
       <section id="view-home" class="view">
         <div class="hero card">
-          <div class="hero-date" id="heroDate"></div>
-          <div class="hero-day">탄생 <b id="heroDay"></b>일째</div>
-          <div class="hero-age" id="heroAge"></div>
-          <div class="hero-live muted" id="heroLive"></div>
-          <div class="hero-next" id="heroNext"></div>
+          <div class="pill pill-blue"><span>📅</span><span id="heroDate"></span></div>
+          <div class="hero-day">
+            <span class="hero-label">탄생</span>
+            <b class="big-num" id="heroDay"></b>
+            <span class="hero-label">일째</span>
+          </div>
+          <div class="hero-age">💗 <span id="heroAge"></span></div>
+          <div class="pill pill-lilac small-pill">📊 <span id="heroLive"></span></div>
+          <div class="dday-row" id="heroNext"></div>
+          <span class="deco s1">⭐</span><span class="deco s2">✨</span><span class="deco s3">⭐</span>
+          <img class="hero-land" src="img/land.webp" alt="" />
         </div>
 
         <button class="write-box" id="writeToday">
           <span class="pen">✏️</span>
           <span>오늘 민한이가 한 말이나 한 일을 적어 주세요…</span>
+          <span class="spark">✨</span>
         </button>
 
-        <h2 class="section-title">오늘 한 말 · 한 일</h2>
+        <h2 class="section-title"><span>🌱</span>오늘 한 말 · 한 일</h2>
         <div id="todayList" class="entries"></div>
         <div id="todayPhotos" class="photo-grid"></div>
 
         <div id="memoriesWrap" hidden>
-          <h2 class="section-title">지난해 오늘</h2>
+          <h2 class="section-title"><span>🕰️</span>지난해 오늘</h2>
           <div id="memories" class="entries"></div>
         </div>
       </section>
 
       <!-- 달력 -->
       <section id="view-calendar" class="view" hidden>
-        <div class="card">
+        <div class="card cal-card">
           <div class="cal-head">
-            <button class="icon-btn" id="calPrev" aria-label="이전 달">‹</button>
-            <button class="cal-title" id="calTitle"></button>
-            <button class="icon-btn" id="calNext" aria-label="다음 달">›</button>
+            <button class="circle-btn" id="calPrev" aria-label="이전 달">‹</button>
+            <button class="pill pill-cream cal-title" id="calTitleBtn"><span>🗓️</span><span id="calTitle"></span></button>
+            <button class="circle-btn" id="calNext" aria-label="다음 달">›</button>
           </div>
           <div class="cal-grid cal-week">
             <span class="sun">일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="sat">토</span>
           </div>
           <div class="cal-grid" id="calGrid"></div>
-          <div class="cal-foot muted" id="calFoot"></div>
+          <div class="pill pill-cream cal-foot">🎁 <span id="calFoot"></span></div>
         </div>
 
-        <div class="day-head">
-          <div>
+        <div class="day-card">
+          <span class="deco d1">⭐</span>
+          <div class="day-text">
             <div class="day-title" id="dayTitle"></div>
-            <div class="muted" id="daySub"></div>
+            <div class="day-sub" id="daySub"></div>
           </div>
-          <button class="btn primary small" id="writeDay">＋ 쓰기</button>
+          <button class="btn primary write-day" id="writeDay">＋✏️<br />쓰기</button>
         </div>
         <div id="dayList" class="entries"></div>
         <div id="dayPhotos" class="photo-grid"></div>
@@ -86,42 +100,52 @@
       <!-- 사진 -->
       <section id="view-photos" class="view" hidden>
         <div class="card photo-intro">
-          <label class="btn primary file-btn">📷 사진 넣기<input type="file" id="photoFile" accept="image/*" multiple hidden /></label>
-          <p class="muted small">사진은 작게 줄여서(장당 약 200KB) 클라우드에 저장해요. 원본은 갤러리에 그대로 있어요.</p>
+          <label class="btn primary big file-btn">📷 사진 넣기<input type="file" id="photoFile" accept="image/*" multiple hidden /></label>
+          <p class="muted">사진은 작게 줄여서(장당 약 200KB) 클라우드에 저장해요. 원본은 갤러리에 그대로 있어요.</p>
         </div>
         <div id="gallery"></div>
       </section>
 
       <!-- 가져오기 -->
       <section id="view-import" class="view" hidden>
-        <div class="card">
-          <p>텔레그램 대화를 <b>복사해서 붙여넣거나</b>, <b>캡쳐 사진</b>을 올리면 글을 읽어서 날짜에 맞게 넣어 드려요.</p>
-          <textarea id="pasteBox" class="paste-box" rows="6" placeholder="여기에 길게 눌러 붙여넣기&#10;(글이나 캡쳐 사진 모두 돼요)"></textarea>
-          <div class="import-actions">
-            <button class="btn primary" id="parseBtn">글 인식하기</button>
-            <label class="btn file-btn">📷 캡쳐 사진 선택<input type="file" id="ocrFile" accept="image/*" multiple hidden /></label>
+        <div class="card import-card">
+          <p class="lead"><span class="lead-icon">⭐</span><span>텔레그램 대화를 <em>복사해서 붙여넣거나, 캡쳐 사진</em>을 올리면 글을 읽어서 날짜에 맞게 넣어 드려요.</span></p>
+          <div class="paste-wrap">
+            <textarea id="pasteBox" class="paste-box" rows="6" placeholder="여기에 길게 눌러 붙여넣기&#10;(글이나 캡쳐 사진 모두 돼요)"></textarea>
+            <span class="paste-pen">✏️</span>
           </div>
-          <label class="fallback-date">날짜가 안 보이면 <input type="date" id="fallbackDate" /> 로 넣기</label>
-          <p class="muted small">캡쳐에 날짜가 안 보이면 사진을 찍은 날짜를 써요. 글자 읽기는 이 폰 안에서만 처리돼요.</p>
+          <div class="import-actions">
+            <button class="btn primary big" id="parseBtn">☰ 글 인식하기</button>
+            <label class="btn big file-btn">📷 캡쳐 사진 선택<input type="file" id="ocrFile" accept="image/*" multiple hidden /></label>
+          </div>
+          <label class="fallback-date"><span>📅 날짜가 안 보이면</span> <input type="date" id="fallbackDate" /> <span>로 넣기</span></label>
+          <div class="info-box"><span class="info-i">i</span><span>캡쳐에 날짜가 안 보이면 사진을 찍은 날짜를 써요.<br />글자 읽기는 이 폰 안에서만 처리돼요.</span></div>
         </div>
         <div id="importResult"></div>
+        <p class="tagline">소중한 순간을<br />민한이의 성장일기로 남겨요! <span>♡</span></p>
       </section>
 
-      <!-- 검색 -->
+      <!-- 찾기 / 설정 -->
       <section id="view-search" class="view" hidden>
-        <div class="card search-box">
-          <input type="search" id="searchInput" placeholder="단어로 찾기 (예: 엄마, 공룡)" />
+        <div class="card search-card">
+          <div class="pill pill-cream search-box">🔍 <input type="search" id="searchInput" placeholder="단어로 찾기 (예: 엄마, 공룡)" /></div>
+          <div class="pill pill-lilac search-info">📋 <span id="searchInfo"></span></div>
+          <div id="searchList" class="entries"></div>
+          <div class="cloud-box" id="settingsBox">
+            <img src="img/photos-illu.webp" alt="" />
+            <p>기록과 사진은 <em>클라우드에</em> 저장돼서 폰을 바꿔도 <em>비밀번호</em>만 넣으면 그대로 이어져요.<br /><small>글 기록만 파일로 따로 보관할 수도 있어요.</small></p>
+          </div>
+          <div class="stack-btns">
+            <button class="btn primary big" id="backupBtn">💾 글 기록 백업 파일</button>
+            <label class="btn big file-btn">📂 백업에서 되살리기<input type="file" id="restoreFile" accept=".json,application/json" hidden /></label>
+            <button class="btn big" id="logoutBtn">🔒 이 폰에서 로그아웃</button>
+          </div>
         </div>
-        <div class="muted center" id="searchInfo"></div>
-        <div id="searchList" class="entries"></div>
-        <div class="card backup">
-          <p class="small muted">기록과 사진은 클라우드에 저장돼서 폰을 바꿔도 비밀번호만 넣으면 그대로 이어져요. 글 기록만 파일로 따로 보관할 수도 있어요.</p>
-          <button class="btn" id="backupBtn">💾 글 기록 백업 파일</button>
-          <label class="btn file-btn">📂 백업에서 되살리기<input type="file" id="restoreFile" accept=".json,application/json" hidden /></label>
-          <p><button class="btn small" id="logoutBtn">이 폰에서 로그아웃</button></p>
-        </div>
+        <p class="tagline">소중한 추억을<br />언제나 간직하세요! <span>♡</span></p>
       </section>
     </main>
+
+    <img class="land page-land" src="img/land.webp" alt="" />
 
     <nav class="bottom">
       <button data-view="home" class="active"><span>🏠</span>오늘</button>
@@ -132,42 +156,37 @@
     </nav>
   </div>
 
-  <!-- 쓰기창 -->
-  <dialog id="editor">
-    <form id="editorForm">
-      <div class="editor-head">
-        <input type="date" name="date" required />
-        <span class="muted" id="editorDay"></span>
-      </div>
+  <!-- 쓰기창 (전체 화면) -->
+  <dialog id="editor" class="sheet">
+    <img class="banner-img" src="img/banner-write.webp" alt="" />
+    <form id="editorForm" class="card sheet-card">
+      <label class="pill pill-cream date-pill">📅 <input type="date" name="date" required /></label>
+      <div class="editor-day">🎂 <span id="editorDay"></span></div>
       <div class="seg" role="radiogroup">
         <label><input type="radio" name="kind" value="say" checked /><span>💬 한 말</span></label>
         <label><input type="radio" name="kind" value="did" /><span>🌱 한 일</span></label>
       </div>
       <label class="field">
-        <span id="textLabel">민한이가 한 말</span>
-        <textarea name="text" rows="5" required></textarea>
+        <span class="field-label">✏️ <span id="textLabel">민한이가 한 말</span></span>
+        <span class="text-wrap"><textarea name="text" rows="5" required></textarea><span class="text-star">⭐</span></span>
       </label>
       <label class="field">
-        <span>상황 메모 <small class="muted">(선택)</small></span>
+        <span class="field-label">📷 상황 메모 <small class="muted">(선택)</small></span>
         <textarea name="note" rows="2" placeholder="저녁 먹고 산책하다가"></textarea>
-      </label>
-      <label class="field inline">
-        <span>시간 <small class="muted">(선택)</small></span>
-        <input type="time" name="time" />
       </label>
       <div class="editor-actions">
         <button type="button" class="btn danger" id="editorDelete" hidden>삭제</button>
-        <span class="spacer"></span>
-        <button type="button" class="btn" id="editorCancel">취소</button>
-        <button type="submit" class="btn primary">저장</button>
+        <button type="button" class="btn big" id="editorCancel">취소</button>
+        <button type="submit" class="btn primary big">💾 저장</button>
       </div>
     </form>
+    <img class="land" src="img/land.webp" alt="" />
   </dialog>
 
   <!-- 사진 넣기 -->
   <dialog id="photoAdd">
     <form id="photoAddForm">
-      <h3>사진 넣기</h3>
+      <h3>📷 사진 넣기</h3>
       <div id="photoAddList" class="photo-add-list"></div>
       <div class="editor-actions">
         <span class="muted small" id="photoAddInfo"></span>
@@ -183,11 +202,11 @@
     <form id="photoViewForm">
       <img id="photoViewImg" alt="" />
       <div class="editor-head">
-        <input type="date" name="date" required />
+        <label class="pill pill-cream date-pill">📅 <input type="date" name="date" required /></label>
         <span class="muted small" id="photoViewDay"></span>
       </div>
       <label class="field">
-        <span>설명 <small class="muted">(선택)</small></span>
+        <span class="field-label">설명 <small class="muted">(선택)</small></span>
         <textarea name="caption" rows="2" placeholder="놀이터에서 처음 철봉에 매달린 날"></textarea>
       </label>
       <div class="editor-actions">
