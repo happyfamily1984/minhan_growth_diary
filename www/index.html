@@ -63,20 +63,21 @@
           <img class="hero-land" src="img/land.webp" alt="" />
         </div>
 
-        <button class="write-box" id="writeToday">
-          <span class="pen">✏️</span>
-          <span>오늘 민한이가 한 말이나 한 일을 적어 주세요…</span>
-          <span class="spark">✨</span>
-        </button>
+        <div class="card family-card">
+          <button class="btn primary big saju-main" data-saju="child">🔮 민한이 사주보기</button>
+          <div class="saju-quick">
+            <button class="chip" data-saju="child" data-tab="life">평생운세</button>
+            <button class="chip" data-saju="child" data-tab="year">올해운세</button>
+            <button class="chip" data-saju="child" data-tab="month">이달의운세</button>
+            <button class="chip" data-saju="child" data-tab="day">오늘의운세</button>
+          </div>
+          <div class="parents" id="parents"></div>
+        </div>
 
         <div id="freshWrap" hidden>
           <h2 class="section-title"><span class="new-dot">N</span>새로 올라온 내용</h2>
           <div id="freshList" class="entries"></div>
         </div>
-
-        <h2 class="section-title"><span>🌱</span>오늘 한 말 · 한 일</h2>
-        <div id="todayList" class="entries"></div>
-        <div id="todayPhotos" class="photo-grid"></div>
 
         <div id="memoriesWrap" hidden>
           <h2 class="section-title"><span>🕰️</span>지난해 오늘</h2>
@@ -133,24 +134,35 @@
             <label class="btn big file-btn">📷 캡쳐 사진 선택<input type="file" id="ocrFile" accept="image/*" multiple hidden /></label>
           </div>
           <label class="fallback-date"><span>📅 날짜가 안 보이면</span> <input type="date" id="fallbackDate" /> <span>로 넣기</span></label>
-          <div class="info-box"><span class="info-i">i</span><span>캡쳐에 날짜가 안 보이면 사진을 찍은 날짜를 써요. 위 날짜를 바꾸면 아래 목록도 같이 바뀌어요.<br />글자 읽기는 이 폰 안에서만 처리돼요.</span></div>
         </div>
         <div id="importResult"></div>
         <p class="tagline">소중한 순간을<br />민한이의 성장일기로 남겨요! <span>♡</span></p>
       </section>
 
+      <!-- 전체보기 -->
+      <section id="view-all" class="view" hidden>
+        <div class="card all-filters">
+          <div class="pill pill-cream search-box">🔍 <input type="search" id="allSearch" placeholder="단어로 찾기 (예: 공룡)" /></div>
+          <div class="filter-row"><span class="filter-label">나이</span><div class="chips" id="fAge"></div></div>
+          <div class="filter-row"><span class="filter-label">종류</span><div class="chips" id="fKind"></div></div>
+          <div class="filter-row"><span class="filter-label">기록자</span><div class="chips" id="fAuthor"></div></div>
+          <div class="filter-row"><span class="filter-label">순서</span><div class="chips" id="fOrder"></div></div>
+        </div>
+        <div class="all-count" id="allCount"></div>
+        <div class="all-list" id="allList"></div>
+      </section>
+
       <!-- 찾기 / 설정 -->
       <section id="view-search" class="view" hidden>
         <div class="card search-card">
-          <div class="pill pill-cream search-box">🔍 <input type="search" id="searchInput" placeholder="단어로 찾기 (예: 공룡)" /></div>
-          <div class="pill pill-lilac search-info">📋 <span id="searchInfo"></span></div>
-          <div id="searchList" class="entries"></div>
+          <h2 class="section-title"><span>⚙️</span>설정</h2>
           <div class="cloud-box" id="settingsBox">
             <img src="img/photos-illu.webp" alt="" />
             <p>기록과 사진은 <em>클라우드에</em> 저장돼서 폰을 바꿔도 <em>비밀번호</em>만 넣으면 그대로 이어져요.<br /><small>글 기록만 파일로 따로 보관할 수도 있어요.</small></p>
           </div>
           <div class="stack-btns">
-            <button class="btn primary big" id="backupBtn">💾 글 기록 백업 파일</button>
+            <button class="btn primary big" id="goImport">📥 텔레그램 가져오기</button>
+            <button class="btn big" id="backupBtn">💾 글 기록 백업 파일</button>
             <label class="btn big file-btn">📂 백업에서 되살리기<input type="file" id="restoreFile" accept=".json,application/json" hidden /></label>
             <button class="btn big" id="roleBtn">✍️ 기록자: <span id="roleName"></span> (바꾸기)</button>
             <button class="btn big" id="logoutBtn">🔒 이 폰에서 로그아웃</button>
@@ -167,7 +179,7 @@
       <button data-view="calendar"><span>📅</span>달력</button>
       <button class="nav-write" id="navWrite" aria-label="쓰기"><span>✏️</span></button>
       <button data-view="photos"><span>📷</span>사진</button>
-      <button data-view="import"><span>📥</span>가져오기</button>
+      <button data-view="all"><span>📜</span>전체보기</button>
     </nav>
   </div>
 
@@ -217,6 +229,25 @@
         <button type="submit" class="btn primary">확인</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- 사주 -->
+  <dialog id="sajuDialog" class="saju-dialog">
+    <div class="saju-head">
+      <h3 id="sajuTitle"></h3>
+      <button type="button" class="btn small" data-close>닫기</button>
+    </div>
+    <div class="saju-birth muted small" id="sajuBirth"></div>
+    <div class="saju-chart" id="sajuChart"></div>
+    <div class="saju-elements" id="sajuElements"></div>
+    <div class="saju-tabs" id="sajuTabs">
+      <button data-tab="life">평생운세</button>
+      <button data-tab="year">올해운세</button>
+      <button data-tab="month">이달의운세</button>
+      <button data-tab="day">오늘의운세</button>
+    </div>
+    <div class="saju-body" id="sajuBody"></div>
+    <p class="muted small saju-note">사주는 태어난 날과 시간으로 계산한 만세력과 정해 둔 풀이로 보여 드려요. 재미로 봐 주세요 😊</p>
   </dialog>
 
   <!-- 년·월 고르기 -->

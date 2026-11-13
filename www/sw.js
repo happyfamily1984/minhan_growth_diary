@@ -1,6 +1,6 @@
 // 인터넷이 없어도 열리도록 앱 파일을 저장해 둔다 (웹으로 쓸 때만)
-const CACHE = 'minhan-v22';
-const FILES = ['./', 'index.html', 'style.css', 'app.js', 'store.js', 'parse.js', 'shared.js', 'ocr-prep.js', 'bubbles.js', 'kv.js', 'photo.js', 'local-store.js', 'firebase-config.js', 'vendor/firebase.js', 'icon.png', 'icon-192.png', 'manifest.webmanifest'];
+const CACHE = 'minhan-v23';
+const FILES = ['./', 'index.html', 'style.css', 'app.js', 'store.js', 'parse.js', 'shared.js', 'ocr-prep.js', 'bubbles.js', 'kv.js', 'saju.js', 'photo.js', 'local-store.js', 'firebase-config.js', 'vendor/firebase.js', 'icon.png', 'icon-192.png', 'manifest.webmanifest'];
 self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES))));
 self.addEventListener('activate', (e) =>
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))),

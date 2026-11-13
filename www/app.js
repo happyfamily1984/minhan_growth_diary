@@ -2,6 +2,7 @@ import { BIRTH_DATE, BIRTH_INSTANT, dayNumber, dateOfDay, age, todaySeoul } from
 import { store, auth$ } from './store.js';
 import { store as localStore } from './local-store.js';
 import { shrinkPhoto, photoTakenDate, decodeImage } from './photo.js';
+import { readSaju } from './saju.js';
 import { parseText, linesToBubbles, parseDateLine } from './parse.js';
 import { binarize } from './ocr-prep.js';
 import { bubblesFromOcr, findBubbles, datePillCandidates, pillCanvas, gapRegions, findPillsByColor } from './bubbles.js';
@@ -113,7 +114,7 @@ function renderList(container, list, opts = {}) {
 }
 
 // ---------------- 화면 전환 (안드로이드 뒤로가기 지원) ----------------
-const VIEWS = ['home', 'calendar', 'photos', 'import', 'search'];
+const VIEWS = ['home', 'calendar', 'photos', 'import', 'search', 'all'];
 let currentView = 'home';
 function showView(name, { push = true } = {}) {
   if (!VIEWS.includes(name)) name = 'home';
@@ -122,7 +123,7 @@ function showView(name, { push = true } = {}) {
   currentView = name;
   for (const s of $$('.view')) s.hidden = s.id !== `view-${name}`;
   for (const b of $$('.bottom [data-view]')) b.classList.toggle('active', b.dataset.view === name);
-  $('#bannerImg').src = `img/banner-${name}.webp`;
+  $('#bannerImg').src = `img/banner-${{ all: 'search', search: 'search' }[name] || name}.webp`;
   requestAnimationFrame(() => growAll());
   const left = $('#topLeftBtn');
   left.textContent = name === 'home' ? '🔍' : '🏠';
@@ -130,7 +131,11 @@ function showView(name, { push = true } = {}) {
   window.scrollTo(0, 0);
   refresh();
 }
-$('#topLeftBtn').addEventListener('click', () => showView(currentView === 'home' ? 'search' : 'home'));
+$('#topLeftBtn').addEventListener('click', () => {
+  if (currentView !== 'home') return showView('home');
+  showView('all'); // 찾기는 전체보기에서
+  setTimeout(() => $('#allSearch').focus(), 200);
+});
 $('#settingsBtn').addEventListener('click', () => {
   showView('search');
   setTimeout(() => $('#settingsBox').scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
@@ -167,7 +172,7 @@ function refresh() {
   if (currentView === 'home') renderHome();
   if (currentView === 'calendar') renderCalendar();
   if (currentView === 'photos') renderGallery();
-  if (currentView === 'search') runSearch();
+  if (currentView === 'all') renderAll();
 }
 
 // ---------------- 오늘 ----------------
@@ -201,19 +206,15 @@ async function renderHome() {
   tickLive();
   // 다른 사람이 새로 쓴 글 (오늘 날짜가 아닌 것도 여기서 한 번 보여 준다)
   const fresh = [...newEntries(), ...store.all().filter((e) => shownNew.has(e.id) && !isNewEntry(e))]
-    .filter((e, i, a) => a.findIndex((x) => x.id === e.id) === i && e.date !== today)
+    .filter((e, i, a) => a.findIndex((x) => x.id === e.id) === i)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   $('#freshWrap').hidden = !fresh.length;
   if (fresh.length) renderList($('#freshList'), fresh, { showDate: true });
   else $('#freshList').replaceChildren();
-  renderList($('#todayList'), await store.list({ date: today }), {
-    face: true,
-    empty: '오늘은 아직 기록이 없어요.<br>민한이가 무슨 말을 하고, 무엇을 했나요?',
-  });
   const past = (await store.list({ md: today.slice(5) })).filter((e) => e.date < today).reverse();
   $('#memoriesWrap').hidden = !past.length;
   renderList($('#memories'), past, { showDate: true });
-  renderPhotoGrid($('#todayPhotos'), store.photos({ date: today }));
+  renderParents(today);
 }
 setInterval(() => currentView === 'home' && !document.hidden && tickLive(), 1000);
 
@@ -313,7 +314,6 @@ $('#editorDelete').addEventListener('click', async () => {
   toast('지웠어요');
   refresh();
 });
-$('#writeToday').addEventListener('click', () => openEditor(todaySeoul()));
 $('#navWrite').addEventListener('click', () => openEditor(currentView === 'calendar' ? selectedDate : todaySeoul()));
 
 // ---------------- 달력 ----------------
@@ -573,16 +573,6 @@ $('#photoDelete').addEventListener('click', async () => {
 
 // ---------------- 찾기 / 백업 ----------------
 let searchTimer;
-$('#searchInput').addEventListener('input', () => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(runSearch, 200);
-});
-async function runSearch() {
-  const q = $('#searchInput').value.trim();
-  const list = (await store.list({ q })).reverse();
-  $('#searchInfo').innerHTML = q ? `"${esc(q)}" <b>${list.length}개</b>` : `<b>전체 ${list.length}개</b> (최신순)`;
-  renderList($('#searchList'), list.slice(0, 300), { showDate: true, empty: '찾는 기록이 없어요' });
-}
 
 $('#backupBtn').addEventListener('click', async () => {
   const json = await store.exportJson();
@@ -1323,6 +1313,190 @@ async function restoreDrafts() {
   }
   restoreWrite();
 }
+
+// ---------------- 가족 (아빠·엄마) ----------------
+const FAMILY = {
+  child: { name: '민한이', label: '민한이', date: BIRTH_DATE, time: '11:55', icon: '👶' },
+  dad: { name: '아빠', label: '아빠', date: '1983-06-07', time: '08:30', icon: '👨' },
+  mom: { name: '엄마', label: '엄마', date: '1980-09-29', time: '18:03', icon: '👩' },
+};
+const daysSince = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+function yearsOld(from, to) {
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  return ty - fy - (tm < fm || (tm === fm && td < fd) ? 1 : 0);
+}
+const koTime = (t) => {
+  const [h, m] = t.split(':').map(Number);
+  return `${h < 12 ? '오전' : '오후'} ${h % 12 || 12}시${m ? ` ${m}분` : ''}`;
+};
+function renderParents(today) {
+  $('#parents').innerHTML = ['dad', 'mom']
+    .map((k) => {
+      const f = FAMILY[k];
+      const [y, m, d] = f.date.split('-').map(Number);
+      return `<div class="parent-row">
+        <span class="parent-name">${f.icon} ${f.label}</span>
+        <span class="parent-info">${y}.${m}.${d} · 탄생 ${daysSince(f.date, today).toLocaleString()}일째 · 만 ${yearsOld(f.date, today)}살</span>
+        <button class="chip small-chip" data-saju="${k}">사주보기</button>
+      </div>`;
+    })
+    .join('');
+}
+
+// ---------------- 사주보기 ----------------
+const sajuDialog = $('#sajuDialog');
+let sajuNow = null;
+const EL_ICON = ['🌳', '🔥', '⛰️', '🪙', '💧'];
+const EL_LABEL = ['목', '화', '토', '금', '수'];
+function openSaju(key, tab = 'life') {
+  const f = FAMILY[key];
+  const now = new Date();
+  const hhmm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
+  sajuNow = readSaju(f, todaySeoul(), hhmm);
+  const [y, m, d] = f.date.split('-').map(Number);
+  $('#sajuTitle').textContent = `🔮 ${f.label} 사주`;
+  $('#sajuBirth').textContent = `${y}년 ${m}월 ${d}일 ${koTime(f.time)} (양력)`;
+  const cols = [['시', sajuNow.chart[0]], ['일', sajuNow.chart[1]], ['월', sajuNow.chart[2]], ['년', sajuNow.chart[3]]];
+  $('#sajuChart').innerHTML = cols
+    .map(([lab, p]) => `<div class="pillar${lab === '일' ? ' me' : ''}"><small>${lab}</small><b>${p.hanja[0]}</b><b>${p.hanja[1]}</b><span>${p.ko}</span></div>`)
+    .join('');
+  $('#sajuElements').innerHTML = sajuNow.counts.map((c, i) => `<span class="el el-${i}">${EL_ICON[i]} ${EL_LABEL[i]} ${c}</span>`).join('');
+  showSajuTab(tab);
+  if (!sajuDialog.open) openDialog(sajuDialog);
+}
+function showSajuTab(tab) {
+  for (const b of $$('#sajuTabs button')) b.classList.toggle('on', b.dataset.tab === tab);
+  const sec = sajuNow.sections[tab];
+  $('#sajuBody').innerHTML = `<h4>${sec.title}</h4><div class="saju-sub">${esc(sec.head)}</div>${sec.text.map((t) => `<p>${esc(t)}</p>`).join('')}`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-saju]');
+  if (b) openSaju(b.dataset.saju, b.dataset.tab || 'life');
+});
+for (const b of $$('#sajuTabs button')) b.addEventListener('click', () => showSajuTab(b.dataset.tab));
+
+// ---------------- 전체보기 ----------------
+const ALL_KEY = 'minhan-all-filter';
+const allFilter = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(ALL_KEY) || 'null');
+    if (v) return { ages: new Set(v.ages), kinds: new Set(v.kinds), authors: new Set(v.authors), order: v.order || 'new' };
+  } catch {}
+  return { ages: new Set(), kinds: new Set(['say', 'did', 'photo']), authors: new Set(), order: 'new' };
+})();
+function saveAllFilter() {
+  try {
+    localStorage.setItem(ALL_KEY, JSON.stringify({ ages: [...allFilter.ages], kinds: [...allFilter.kinds], authors: [...allFilter.authors], order: allFilter.order }));
+  } catch {}
+}
+const ageOf = (date) => age(date).years;
+function chip(label, on, onClick) {
+  const b = document.createElement('button');
+  b.className = 'chip' + (on ? ' on' : '');
+  b.innerHTML = label;
+  b.addEventListener('click', onClick);
+  return b;
+}
+/** 여러 개 고르기: 비어 있으면 '전체' */
+function toggleIn(set, v) {
+  set.has(v) ? set.delete(v) : set.add(v);
+  saveAllFilter();
+  renderAll();
+}
+let allTimer;
+$('#allSearch').addEventListener('input', () => {
+  clearTimeout(allTimer);
+  allTimer = setTimeout(renderAll, 200);
+});
+function renderAll() {
+  const today = todaySeoul();
+  const entries = store.all();
+  const photos = store.photos();
+  // --- 고르기 칸 ---
+  const maxAge = ageOf(today);
+  const fAge = $('#fAge');
+  fAge.replaceChildren(chip('전체', !allFilter.ages.size, () => (allFilter.ages.clear(), saveAllFilter(), renderAll())));
+  for (let a = 0; a <= maxAge; a++) fAge.append(chip(`${a}세`, allFilter.ages.has(a), () => toggleIn(allFilter.ages, a)));
+  const fKind = $('#fKind');
+  fKind.replaceChildren();
+  for (const [k, l] of [['say', '💬 한 말'], ['did', '🌱 한 일'], ['photo', '📷 사진']])
+    fKind.append(
+      chip(l, allFilter.kinds.has(k), () => {
+        if (allFilter.kinds.has(k) && allFilter.kinds.size === 1) return; // 하나는 남긴다
+        toggleIn(allFilter.kinds, k);
+      }),
+    );
+  const authors = [...new Set([...entries, ...photos].map((x) => x.author).filter(Boolean))].sort((a, b) =>
+    ['아빠', '엄마'].indexOf(b) - ['아빠', '엄마'].indexOf(a) || a.localeCompare(b),
+  );
+  const fAuthor = $('#fAuthor');
+  fAuthor.replaceChildren(chip('전체', !allFilter.authors.size, () => (allFilter.authors.clear(), saveAllFilter(), renderAll())));
+  for (const a of authors) fAuthor.append(chip(esc(a), allFilter.authors.has(a), () => toggleIn(allFilter.authors, a)));
+  $('#fOrder').replaceChildren(
+    chip('최신순', allFilter.order === 'new', () => ((allFilter.order = 'new'), saveAllFilter(), renderAll())),
+    chip('오래된순', allFilter.order === 'old', () => ((allFilter.order = 'old'), saveAllFilter(), renderAll())),
+  );
+  // --- 거르기 ---
+  const q = $('#allSearch').value.trim().toLowerCase();
+  const pass = (date, author, text) =>
+    (!allFilter.ages.size || allFilter.ages.has(ageOf(date))) &&
+    (!allFilter.authors.size || allFilter.authors.has(author || '')) &&
+    (!q || String(text).toLowerCase().includes(q));
+  const items = [
+    ...entries.filter((e) => allFilter.kinds.has(e.kind || 'say') && pass(e.date, e.author, `${e.text} ${e.note}`)).map((e) => ({ type: 'entry', date: e.date, key: `${e.time || '99:99'}${e.createdAt}`, e })),
+    ...(allFilter.kinds.has('photo') ? photos.filter((p) => pass(p.date, p.author, p.caption)).map((p) => ({ type: 'photo', date: p.date, key: `zz${p.createdAt}`, p })) : []),
+  ];
+  // 날짜별로 묶기
+  const byDate = new Map();
+  for (const it of items) {
+    if (!byDate.has(it.date)) byDate.set(it.date, []);
+    byDate.get(it.date).push(it);
+  }
+  const dates = [...byDate.keys()].sort();
+  if (allFilter.order === 'new') dates.reverse();
+  const nEntries = items.filter((i) => i.type === 'entry').length;
+  const nPhotos = items.length - nEntries;
+  $('#allCount').textContent = `${dates.length.toLocaleString()}일 · 글 ${nEntries.toLocaleString()}개${nPhotos ? ` · 사진 ${nPhotos}장` : ''}`;
+  const mark = (t) => {
+    const safe = esc(t);
+    if (!q) return safe;
+    const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    return safe.replace(re, (m) => `<mark>${m}</mark>`);
+  };
+  const list = $('#allList');
+  const frag = document.createDocumentFragment();
+  for (const d of dates) {
+    const [y, m, dd] = d.split('-').map(Number);
+    const row = document.createElement('div');
+    row.className = 'all-row';
+    row.innerHTML = `<div class="all-date"><span>${y}년</span><b>${m}월 ${dd}일</b><small>(${ageOf(d)}세)</small></div><div class="all-items"></div>`;
+    const box = $('.all-items', row);
+    const its = byDate.get(d).sort((a, b) => a.key.localeCompare(b.key));
+    for (const it of its) {
+      if (it.type === 'entry') {
+        const e = it.e;
+        const el = document.createElement('div');
+        el.className = `all-item kind-${e.kind || 'say'}`;
+        el.innerHTML = `<div class="all-text">${mark(e.text)}</div>${e.note ? `<div class="all-note">${mark(e.note)}</div>` : ''}${e.author ? `<span class="all-author">${esc(e.author)}</span>` : ''}`;
+        el.addEventListener('click', () => openEditor(e.date, e));
+        box.append(el);
+      } else {
+        const p = it.p;
+        const el = document.createElement('button');
+        el.className = 'all-photo';
+        el.innerHTML = `<img src="${p.thumb}" alt="" loading="lazy"><span>${p.caption ? mark(p.caption) : '📷 사진'}</span>`;
+        el.addEventListener('click', () => openPhoto(p));
+        box.append(el);
+      }
+    }
+    frag.append(row);
+  }
+  list.replaceChildren(frag);
+  if (!dates.length) list.innerHTML = '<div class="empty">조건에 맞는 기록이 없어요</div>';
+}
+
+$('#goImport').addEventListener('click', () => showView('import'));
 
 // ---------------- 폰 알림 (안드로이드) ----------------
 // 앱이 꺼져 있어도 15분마다 새 글을 확인해서 알림을 띄운다 (MainActivity / NewEntryWorker)
