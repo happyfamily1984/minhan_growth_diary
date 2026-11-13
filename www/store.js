@@ -1,37 +1,77 @@
-// 기기 안(IndexedDB)에 기록을 저장한다. 서버가 필요 없다.
-const DB_NAME = 'minhan-diary';
-const STORE = 'entries';
+// 클라우드(Firebase) 저장소. 폰에도 복사본을 두어서 인터넷이 없어도 쓰고,
+// 연결되면 자동으로 올라가고, 다른 폰(아내/남편)에서 쓴 것도 바로 내려온다.
+import {
+  initializeApp,
+  getAuth,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut,
+  connectAuthEmulator,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentSingleTabManager,
+  connectFirestoreEmulator,
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  getDoc,
+  onSnapshot,
+} from './vendor/firebase.js';
+import { firebaseConfig, FAMILY_ID, FAMILY_EMAIL, toFirebasePassword } from './firebase-config.js';
 
-let dbp;
-function open() {
-  dbp ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  return dbp;
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const fs = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() }) });
+
+// 테스트용: 주소에 ?emu=1 을 붙이면 컴퓨터의 Firebase 에뮬레이터에 연결
+if (new URLSearchParams(location.search).has('emu')) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(fs, '127.0.0.1', 8080);
 }
 
-async function tx(mode, fn) {
-  const db = await open();
-  return new Promise((resolve, reject) => {
-    const t = db.transaction(STORE, mode);
-    const out = fn(t.objectStore(STORE));
-    t.oncomplete = () => resolve(out?.result ?? out);
-    t.onerror = () => reject(t.error);
-  });
-}
-
-let cache = null;
-async function all() {
-  cache ??= await tx('readonly', (s) => s.getAll());
-  return cache;
-}
+const base = `families/${FAMILY_ID}`;
+const entriesCol = collection(fs, `${base}/entries`);
+const photosCol = collection(fs, `${base}/photos`);
+const photoDataDoc = (id) => doc(fs, `${base}/photoData/${id}`);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const sortKey = (e) => `${e.date} ${e.time || '99:99'} ${e.createdAt}`;
 const sorted = (list) => [...list].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+
+let entries = new Map();
+let photos = new Map();
+let ready = { entries: false, photos: false };
+const listeners = new Set();
+let syncState = { offline: false, pending: false };
+const emit = () => listeners.forEach((fn) => fn());
+
+let unsubs = [];
+function startListening(onReady) {
+  const done = () => ready.entries && ready.photos && onReady?.();
+  const track = (snap) => {
+    syncState = { offline: snap.metadata.fromCache, pending: snap.metadata.hasPendingWrites };
+  };
+  unsubs.push(
+    onSnapshot(entriesCol, { includeMetadataChanges: true }, (snap) => {
+      entries = new Map(snap.docs.map((d) => [d.id, d.data()]));
+      track(snap);
+      ready.entries = true;
+      done();
+      emit();
+    }, (err) => console.error('entries', err)),
+    onSnapshot(photosCol, { includeMetadataChanges: true }, (snap) => {
+      photos = new Map(snap.docs.map((d) => [d.id, d.data()]));
+      track(snap);
+      ready.photos = true;
+      done();
+      emit();
+    }, (err) => console.error('photos', err)),
+  );
+}
+
+// 오프라인이면 서버 응답을 기다리지 않는다 (폰에 먼저 저장되고 나중에 올라감)
+const write = (p) => p.catch((err) => console.error('저장 실패', err));
 
 function normalize(e) {
   if (!DATE_RE.test(e.date || '')) throw new Error('날짜를 확인해 주세요');
@@ -40,21 +80,52 @@ function normalize(e) {
   const now = new Date().toISOString();
   return {
     id: e.id || crypto.randomUUID(),
-    kind: e.kind === 'did' ? 'did' : 'say', // say: 한 말, did: 한 일
+    kind: e.kind === 'did' ? 'did' : 'say',
     date: e.date,
     time: String(e.time || ''),
     text,
     note: String(e.note || '').trim(),
     source: e.source || 'manual',
-    meta: e.meta || null,
     createdAt: e.createdAt || now,
     updatedAt: now,
   };
 }
 
+export const auth$ = {
+  /** 로그인 상태가 정해지면 cb(true|false) */
+  watch(cb) {
+    return onAuthStateChanged(auth, (user) => {
+      unsubs.forEach((u) => u());
+      unsubs = [];
+      ready = { entries: false, photos: false };
+      if (user) startListening(() => cb(true));
+      else cb(false);
+    });
+  },
+  async login(pin) {
+    try {
+      await signInWithEmailAndPassword(auth, FAMILY_EMAIL, toFirebasePassword(pin));
+    } catch (e) {
+      const code = e.code || '';
+      if (/wrong-password|invalid-credential|user-not-found|invalid-login/.test(code)) throw new Error('비밀번호가 틀렸어요');
+      if (/too-many-requests/.test(code)) throw new Error('너무 여러 번 틀렸어요. 잠시 뒤에 다시 해 주세요');
+      if (/network/.test(code)) throw new Error('인터넷 연결을 확인해 주세요 (처음 한 번은 인터넷이 필요해요)');
+      throw new Error('로그인하지 못했어요: ' + code);
+    }
+  },
+  logout: () => signOut(auth),
+};
+
 export const store = {
+  onChange(fn) {
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  },
+  sync: () => syncState,
+
+  // ---- 기록 ----
   async list({ date, md, q } = {}) {
-    let list = await all();
+    let list = [...entries.values()];
     if (date) list = list.filter((e) => e.date === date);
     if (md) list = list.filter((e) => e.date.slice(5) === md);
     if (q) {
@@ -65,44 +136,85 @@ export const store = {
   },
   async counts() {
     const c = {};
-    for (const e of await all()) c[e.date] = (c[e.date] || 0) + 1;
+    for (const e of entries.values()) c[e.date] = (c[e.date] || 0) + 1;
     return c;
   },
   async total() {
-    return (await all()).length;
+    return entries.size;
   },
-  /** 여러 개를 한 번에 저장 (같은 id 는 덮어씀) */
   async put(items) {
     const list = items.map(normalize);
-    await all();
-    await tx('readwrite', (s) => list.forEach((e) => s.put(e)));
-    const ids = new Set(list.map((e) => e.id));
-    cache = [...cache.filter((e) => !ids.has(e.id)), ...list];
+    for (const e of list) {
+      entries.set(e.id, e);
+      write(setDoc(doc(entriesCol, e.id), e));
+    }
+    emit();
     return list;
   },
   async update(id, patch) {
-    const cur = (await all()).find((e) => e.id === id);
+    const cur = entries.get(id);
     if (!cur) throw new Error('기록을 찾을 수 없어요');
     return (await store.put([{ ...cur, ...patch, id }]))[0];
   },
   async remove(id) {
-    await all();
-    await tx('readwrite', (s) => s.delete(id));
-    cache = cache.filter((e) => e.id !== id);
+    entries.delete(id);
+    write(deleteDoc(doc(entriesCol, id)));
+    emit();
   },
+
+  // ---- 사진 (기록과 따로) ----
+  photos({ date } = {}) {
+    let list = [...photos.values()];
+    if (date) list = list.filter((p) => p.date === date);
+    return list.sort((a, b) => `${b.date}${b.createdAt}`.localeCompare(`${a.date}${a.createdAt}`));
+  },
+  photoDates() {
+    const c = {};
+    for (const p of photos.values()) c[p.date] = (c[p.date] || 0) + 1;
+    return c;
+  },
+  /** { date, caption, thumb, data, width, height } — thumb/data 는 JPEG data URL */
+  async addPhoto(p) {
+    if (!DATE_RE.test(p.date || '')) throw new Error('날짜를 확인해 주세요');
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const meta = { id, date: p.date, caption: String(p.caption || '').trim(), thumb: p.thumb, width: p.width, height: p.height, createdAt: now, updatedAt: now };
+    photos.set(id, meta);
+    write(setDoc(photoDataDoc(id), { data: p.data }));
+    write(setDoc(doc(photosCol, id), meta));
+    emit();
+    return meta;
+  },
+  async updatePhoto(id, patch) {
+    const cur = photos.get(id);
+    if (!cur) throw new Error('사진을 찾을 수 없어요');
+    const next = { ...cur, ...patch, caption: String(patch.caption ?? cur.caption).trim(), updatedAt: new Date().toISOString() };
+    photos.set(id, next);
+    write(setDoc(doc(photosCol, id), next));
+    emit();
+  },
+  async removePhoto(id) {
+    photos.delete(id);
+    write(deleteDoc(doc(photosCol, id)));
+    write(deleteDoc(photoDataDoc(id)));
+    emit();
+  },
+  /** 큰 사진 (처음 볼 때 내려받고, 그 뒤로는 폰에 저장된 것을 씀) */
+  async photoData(id) {
+    const snap = await getDoc(photoDataDoc(id));
+    return snap.exists() ? snap.data().data : null;
+  },
+
+  // ---- 백업 ----
   async exportJson() {
-    return JSON.stringify({ app: 'minhan-growth-diary', version: 2, entries: sorted(await all()) }, null, 2);
+    return JSON.stringify({ app: 'minhan-growth-diary', version: 3, entries: sorted([...entries.values()]) }, null, 2);
   },
-  /** 백업 파일 복원. 이미 있는 기록(같은 id)은 백업 내용으로 바뀐다 */
   async importJson(text) {
     const data = JSON.parse(text);
-    const entries = Array.isArray(data) ? data : data.entries;
-    if (!Array.isArray(entries)) throw new Error('백업 파일이 아니에요');
-    const ok = entries.filter((e) => DATE_RE.test(e?.date || '') && String(e?.text || '').trim());
-    await store.put(ok.map((e) => ({ ...e, updatedAt: undefined })));
+    const list = Array.isArray(data) ? data : data.entries;
+    if (!Array.isArray(list)) throw new Error('백업 파일이 아니에요');
+    const ok = list.filter((e) => DATE_RE.test(e?.date || '') && String(e?.text || '').trim());
+    await store.put(ok.map(({ updatedAt, meta, ...e }) => e));
     return ok.length;
   },
 };
-
-// 브라우저가 저장 공간을 마음대로 비우지 않도록 요청
-navigator.storage?.persist?.().catch(() => {});

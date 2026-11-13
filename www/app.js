@@ -1,5 +1,7 @@
 import { BIRTH_DATE, BIRTH_INSTANT, dayNumber, dateOfDay, age, todaySeoul } from './shared.js';
-import { store } from './store.js';
+import { store, auth$ } from './store.js';
+import { store as localStore } from './local-store.js';
+import { shrinkPhoto, photoTakenDate } from './photo.js';
 import { parseText, linesToBubbles } from './parse.js';
 import { binarize } from './ocr-prep.js';
 
@@ -64,7 +66,7 @@ function renderList(container, list, opts = {}) {
 }
 
 // ---------------- 화면 전환 (안드로이드 뒤로가기 지원) ----------------
-const VIEWS = ['home', 'calendar', 'import', 'search'];
+const VIEWS = ['home', 'calendar', 'photos', 'import', 'search'];
 let currentView = 'home';
 function showView(name, { push = true } = {}) {
   if (!VIEWS.includes(name)) name = 'home';
@@ -75,18 +77,38 @@ function showView(name, { push = true } = {}) {
   window.scrollTo(0, 0);
   refresh();
 }
-for (const b of $$('.bottom [data-view]')) b.addEventListener('click', () => showView(b.dataset.view));
+for (const b of $$('[data-view]')) b.addEventListener('click', () => showView(b.dataset.view));
+
+// 창(dialog) 은 열 때 history 를 하나 쌓아서, 안드로이드 뒤로가기로 닫히게 한다
+function openDialog(d) {
+  history.pushState({ dialog: d.id }, '');
+  d.showModal();
+}
+function closeDialog(d) {
+  if (!d.open) return;
+  if (history.state?.dialog === d.id) history.back(); // popstate 에서 닫힘
+  else d.close();
+}
 window.addEventListener('popstate', () => {
-  if (editor.open) {
-    editor.close();
+  const open = $$('dialog').find((d) => d.open);
+  if (open) {
+    open.close();
     return;
   }
   showView(location.hash.slice(1) || 'home', { push: false });
 });
+for (const d of $$('dialog')) {
+  d.addEventListener('cancel', (e) => {
+    e.preventDefault();
+    closeDialog(d);
+  });
+  for (const b of $$('[data-close]', d)) b.addEventListener('click', () => closeDialog(d));
+}
 
 function refresh() {
   if (currentView === 'home') renderHome();
   if (currentView === 'calendar') renderCalendar();
+  if (currentView === 'photos') renderGallery();
   if (currentView === 'search') runSearch();
 }
 
@@ -122,6 +144,7 @@ async function renderHome() {
   const past = (await store.list({ md: today.slice(5) })).filter((e) => e.date < today).reverse();
   $('#memoriesWrap').hidden = !past.length;
   renderList($('#memories'), past, { showDate: true });
+  renderPhotoGrid($('#todayPhotos'), store.photos({ date: today }));
 }
 setInterval(() => currentView === 'home' && !document.hidden && tickLive(), 1000);
 
@@ -147,24 +170,16 @@ function openEditor(date, entry = null) {
   form.time.value = entry?.time || '';
   $('#editorDelete').hidden = !entry;
   updateEditorDay();
-  history.pushState({ editor: true }, '');
-  editor.showModal();
+  openDialog(editor);
   if (!entry) form.text.focus();
 }
-function closeEditor() {
-  if (history.state?.editor) history.back(); // popstate 에서 닫힘
-  else editor.close();
-}
+const closeEditor = () => closeDialog(editor);
 function updateEditorDay() {
   const d = form.date.value;
   $('#editorDay').textContent = d && d >= BIRTH_DATE ? `${dayText(d)} · ${ageText(d)}` : '';
 }
 form.date.addEventListener('input', updateEditorDay);
 for (const r of $$('input[name=kind]', form)) r.addEventListener('change', () => setKind(form.kind.value));
-editor.addEventListener('cancel', (e) => {
-  e.preventDefault();
-  closeEditor();
-});
 $('#editorCancel').addEventListener('click', closeEditor);
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -219,6 +234,7 @@ $('#writeDay').addEventListener('click', () => openEditor(selectedDate));
 
 async function renderCalendar() {
   const [counts, total] = await Promise.all([store.counts(), store.total()]);
+  const photoDays = store.photoDates();
   const [y, m] = calMonth.split('-').map(Number);
   const today = todaySeoul();
   $('#calTitle').textContent = `${y}년 ${m}월`;
@@ -235,7 +251,7 @@ async function renderCalendar() {
     const c = counts[ymd] || 0;
     if (inMonth) monthCount += c;
     const btn = document.createElement('button');
-    btn.className = ['cal-day', !inMonth && 'other', ymd === today && 'today', ymd === selectedDate && 'selected', c && 'has', ymd === BIRTH_DATE && 'birth', d.getUTCDay() === 0 && 'sun', d.getUTCDay() === 6 && 'sat']
+    btn.className = ['cal-day', !inMonth && 'other', ymd === today && 'today', ymd === selectedDate && 'selected', c && 'has', photoDays[ymd] && 'has-photo', ymd === BIRTH_DATE && 'birth', d.getUTCDay() === 0 && 'sun', d.getUTCDay() === 6 && 'sat']
       .filter(Boolean)
       .join(' ');
     btn.innerHTML = `<span>${d.getUTCDate()}</span>`;
@@ -253,7 +269,143 @@ async function renderCalendar() {
   renderList($('#dayList'), await store.list({ date: selectedDate }), {
     empty: selectedDate === BIRTH_DATE ? '👶 민한이가 태어난 날 (오전 11시 55분)' : '이 날의 기록이 없어요',
   });
+  renderPhotoGrid($('#dayPhotos'), store.photos({ date: selectedDate }));
 }
+
+// ---------------- 사진 (기록과 따로) ----------------
+function renderPhotoGrid(container, list, { showDate = false } = {}) {
+  container.replaceChildren();
+  for (const p of list) {
+    const b = document.createElement('button');
+    b.className = 'photo-thumb';
+    b.innerHTML = `<img src="${p.thumb}" alt="${esc(p.caption)}" loading="lazy">${p.caption ? `<span>${esc(p.caption)}</span>` : ''}${showDate ? `<i>${Number(p.date.slice(8))}일</i>` : ''}`;
+    b.addEventListener('click', () => openPhoto(p));
+    container.append(b);
+  }
+}
+
+function renderGallery() {
+  const wrap = $('#gallery');
+  wrap.replaceChildren();
+  const list = store.photos();
+  if (!list.length) {
+    wrap.innerHTML = '<div class="empty">아직 사진이 없어요. 민한이 사진을 넣어 보세요 📷</div>';
+    return;
+  }
+  const byMonth = new Map();
+  for (const p of list) {
+    const k = p.date.slice(0, 7);
+    if (!byMonth.has(k)) byMonth.set(k, []);
+    byMonth.get(k).push(p);
+  }
+  for (const [ym, items] of byMonth) {
+    const [y, m] = ym.split('-').map(Number);
+    const a = age(items[items.length - 1].date);
+    const h = document.createElement('h2');
+    h.className = 'section-title';
+    h.textContent = `${y}년 ${m}월 · 만 ${a.years}살 ${a.months}개월`;
+    const grid = document.createElement('div');
+    grid.className = 'photo-grid';
+    renderPhotoGrid(grid, items, { showDate: true });
+    wrap.append(h, grid);
+  }
+}
+
+// 사진 고르기 → 날짜·설명 확인 → 넣기
+const photoAdd = $('#photoAdd');
+let pendingPhotos = [];
+$('#photoFile').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (!files.length) return;
+  const list = $('#photoAddList');
+  list.innerHTML = '<div class="muted">사진 준비 중…</div>';
+  $('#photoAddInfo').textContent = '';
+  openDialog(photoAdd);
+  pendingPhotos = [];
+  for (const f of files) {
+    try {
+      const [shrunk, taken] = await Promise.all([shrinkPhoto(f), photoTakenDate(f)]);
+      const fileDay = f.lastModified ? todaySeoul(new Date(f.lastModified)) : null;
+      let date = taken || fileDay || todaySeoul();
+      if (date < BIRTH_DATE) date = todaySeoul();
+      pendingPhotos.push({ ...shrunk, date });
+    } catch {
+      toast('읽을 수 없는 사진이 있어요');
+    }
+  }
+  list.replaceChildren();
+  for (const p of pendingPhotos) {
+    const row = document.createElement('div');
+    row.className = 'photo-add-row';
+    row.innerHTML = `<img src="${p.thumb}" alt="">
+      <div class="photo-add-fields">
+        <input type="date" min="${BIRTH_DATE}" value="${p.date}" aria-label="날짜">
+        <input type="text" placeholder="설명 (선택)" aria-label="설명">
+      </div>`;
+    p.row = row;
+    list.append(row);
+  }
+  const kb = Math.round(pendingPhotos.reduce((sum, p) => sum + p.data.length * 0.75, 0) / 1024);
+  $('#photoAddInfo').textContent = `${pendingPhotos.length}장 · 약 ${kb.toLocaleString()}KB`;
+});
+$('#photoAddForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    for (const p of pendingPhotos) {
+      const [dateEl, capEl] = p.row.querySelectorAll('input');
+      if (!dateEl.value || dateEl.value < BIRTH_DATE) return toast('날짜를 확인해 주세요');
+      p.date = dateEl.value;
+      p.caption = capEl.value;
+    }
+    const n = pendingPhotos.length;
+    for (const { row, ...p } of pendingPhotos) await store.addPhoto(p);
+    toast(`사진 ${n}장을 넣었어요 💛`);
+    pendingPhotos = [];
+    closeDialog(photoAdd);
+    refresh();
+  } catch (err) {
+    toast(err.message);
+  }
+});
+
+// 사진 크게 보기 / 설명 고치기 / 지우기
+const photoView = $('#photoView');
+const pform = $('#photoViewForm');
+let viewing = null;
+async function openPhoto(p) {
+  viewing = p;
+  const img = $('#photoViewImg');
+  img.src = p.thumb;
+  pform.date.value = p.date;
+  pform.date.min = BIRTH_DATE;
+  pform.caption.value = p.caption || '';
+  $('#photoViewDay').textContent = `${dayText(p.date)} · ${ageText(p.date)}`;
+  openDialog(photoView);
+  try {
+    const full = await store.photoData(p.id);
+    if (full && viewing === p) img.src = full;
+  } catch {
+    /* 인터넷이 없으면 작은 사진만 보인다 */
+  }
+}
+pform.date.addEventListener('input', () => {
+  const d = pform.date.value;
+  $('#photoViewDay').textContent = d >= BIRTH_DATE ? `${dayText(d)} · ${ageText(d)}` : '';
+});
+pform.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!pform.date.value || pform.date.value < BIRTH_DATE) return toast('날짜를 확인해 주세요');
+  await store.updatePhoto(viewing.id, { date: pform.date.value, caption: pform.caption.value });
+  toast('저장했어요');
+  closeDialog(photoView);
+});
+$('#photoDelete').addEventListener('click', async () => {
+  if (!confirm('이 사진을 지울까요?')) return;
+  await store.removePhoto(viewing.id);
+  toast('지웠어요');
+  closeDialog(photoView);
+});
 
 // ---------------- 찾기 / 백업 ----------------
 let searchTimer;
@@ -535,8 +687,68 @@ window.onAndroidShare = takeShared;
 document.addEventListener('visibilitychange', () => !document.hidden && takeShared());
 
 // ---------------- 시작 ----------------
-showView(location.hash.slice(1) || 'home', { push: false });
-takeShared();
+// ---------------- 로그인 (가족 비밀번호) ----------------
+let started = false;
+$('#loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  $('#loginError').textContent = '';
+  try {
+    await auth$.login($('#pin').value.trim());
+  } catch (err) {
+    $('#loginError').textContent = err.message;
+    $('#pin').select();
+  } finally {
+    btn.disabled = false;
+  }
+});
+$('#logoutBtn').addEventListener('click', async () => {
+  if (confirm('이 폰에서 로그아웃할까요? (기록은 클라우드에 그대로 있어요)')) await auth$.logout();
+});
+
+/** 예전(폰에만 저장하던 버전)의 기록을 클라우드로 옮긴다 */
+async function migrateLocal() {
+  try {
+    const old = await localStore.list();
+    if (!old.length) return;
+    await store.put(old.map(({ meta, updatedAt, ...e }) => e));
+    for (const e of old) await localStore.remove(e.id);
+    toast(`이 폰에 있던 기록 ${old.length}개를 클라우드로 옮겼어요`);
+  } catch (err) {
+    console.error('migrate', err);
+  }
+}
+
+function showSync() {
+  const { offline, pending } = store.sync();
+  $('#syncState').textContent = offline ? '오프라인' : pending ? '올리는 중…' : '☁️';
+  $('#syncState').title = offline ? '인터넷이 연결되면 자동으로 맞춰져요' : '클라우드와 맞춰져 있어요';
+}
+let refreshTimer;
+store.onChange(() => {
+  showSync();
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refresh, 50);
+});
+
+auth$.watch((loggedIn) => {
+  $('#loading').hidden = true;
+  $('#login').hidden = loggedIn;
+  $('#app').hidden = !loggedIn;
+  if (!loggedIn) {
+    $('#pin').value = '';
+    setTimeout(() => $('#pin').focus(), 100);
+    return;
+  }
+  if (!started) {
+    started = true;
+    showView(location.hash.slice(1) || 'home', { push: false });
+    takeShared();
+    migrateLocal();
+  } else refresh();
+});
+
 if (!native && 'serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

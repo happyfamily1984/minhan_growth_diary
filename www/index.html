@@ -11,9 +11,24 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="app">
+  <!-- 비밀번호 화면 -->
+  <div id="login" class="login" hidden>
+    <form id="loginForm" class="card">
+      <img src="icon.svg" alt="" class="login-icon" />
+      <h1>민한이 성장일기</h1>
+      <p class="muted">가족 비밀번호를 입력해 주세요</p>
+      <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••" maxlength="12" required />
+      <button class="btn primary" type="submit">들어가기</button>
+      <p class="error" id="loginError"></p>
+    </form>
+  </div>
+  <div id="loading" class="login"><div class="muted">불러오는 중…</div></div>
+
+  <div id="app" hidden>
     <header class="top">
       <div class="title">민한이 성장일기</div>
+      <span class="sync muted" id="syncState"></span>
+      <button class="icon-btn top-btn" data-view="search" aria-label="찾기">🔍</button>
     </header>
 
     <main>
@@ -34,6 +49,7 @@
 
         <h2 class="section-title">오늘 한 말 · 한 일</h2>
         <div id="todayList" class="entries"></div>
+        <div id="todayPhotos" class="photo-grid"></div>
 
         <div id="memoriesWrap" hidden>
           <h2 class="section-title">지난해 오늘</h2>
@@ -64,6 +80,16 @@
           <button class="btn primary small" id="writeDay">＋ 쓰기</button>
         </div>
         <div id="dayList" class="entries"></div>
+        <div id="dayPhotos" class="photo-grid"></div>
+      </section>
+
+      <!-- 사진 -->
+      <section id="view-photos" class="view" hidden>
+        <div class="card photo-intro">
+          <label class="btn primary file-btn">📷 사진 넣기<input type="file" id="photoFile" accept="image/*" multiple hidden /></label>
+          <p class="muted small">사진은 작게 줄여서(장당 약 200KB) 클라우드에 저장해요. 원본은 갤러리에 그대로 있어요.</p>
+        </div>
+        <div id="gallery"></div>
       </section>
 
       <!-- 가져오기 -->
@@ -89,9 +115,10 @@
         <div class="muted center" id="searchInfo"></div>
         <div id="searchList" class="entries"></div>
         <div class="card backup">
-          <p class="small muted">기록은 이 폰 안에만 저장돼요. 앱을 지우거나 폰을 바꾸기 전에 꼭 백업해 두세요.</p>
-          <button class="btn" id="backupBtn">💾 백업 파일 만들기</button>
+          <p class="small muted">기록과 사진은 클라우드에 저장돼서 폰을 바꿔도 비밀번호만 넣으면 그대로 이어져요. 글 기록만 파일로 따로 보관할 수도 있어요.</p>
+          <button class="btn" id="backupBtn">💾 글 기록 백업 파일</button>
           <label class="btn file-btn">📂 백업에서 되살리기<input type="file" id="restoreFile" accept=".json,application/json" hidden /></label>
+          <p><button class="btn small" id="logoutBtn">이 폰에서 로그아웃</button></p>
         </div>
       </section>
     </main>
@@ -100,8 +127,8 @@
       <button data-view="home" class="active"><span>🏠</span>오늘</button>
       <button data-view="calendar"><span>📅</span>달력</button>
       <button class="nav-write" id="navWrite" aria-label="쓰기"><span>✏️</span></button>
+      <button data-view="photos"><span>📷</span>사진</button>
       <button data-view="import"><span>📥</span>가져오기</button>
-      <button data-view="search"><span>🔍</span>찾기</button>
     </nav>
   </div>
 
@@ -132,6 +159,41 @@
         <button type="button" class="btn danger" id="editorDelete" hidden>삭제</button>
         <span class="spacer"></span>
         <button type="button" class="btn" id="editorCancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 사진 넣기 -->
+  <dialog id="photoAdd">
+    <form id="photoAddForm">
+      <h3>사진 넣기</h3>
+      <div id="photoAddList" class="photo-add-list"></div>
+      <div class="editor-actions">
+        <span class="muted small" id="photoAddInfo"></span>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>취소</button>
+        <button type="submit" class="btn primary">넣기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 사진 보기 -->
+  <dialog id="photoView" class="photo-view">
+    <form id="photoViewForm">
+      <img id="photoViewImg" alt="" />
+      <div class="editor-head">
+        <input type="date" name="date" required />
+        <span class="muted small" id="photoViewDay"></span>
+      </div>
+      <label class="field">
+        <span>설명 <small class="muted">(선택)</small></span>
+        <textarea name="caption" rows="2" placeholder="놀이터에서 처음 철봉에 매달린 날"></textarea>
+      </label>
+      <div class="editor-actions">
+        <button type="button" class="btn danger" id="photoDelete">삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>닫기</button>
         <button type="submit" class="btn primary">저장</button>
       </div>
     </form>

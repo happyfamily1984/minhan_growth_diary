@@ -1,7 +1,8 @@
 # 민한이 성장일기 👶💬🌱
 
-민한이(2016년 2월 22일 오전 11시 55분생)가 **한 말**과 **한 일**을 날짜별로 기록하는 안드로이드 앱입니다.
-서버 없이 폰 안에 저장되고, 인터넷이 없어도 동작합니다.
+민한이(2016년 2월 22일 오전 11시 55분생)가 **한 말**과 **한 일**, 그리고 **사진**을 날짜별로 기록하는 안드로이드 앱입니다.
+가족 비밀번호 하나로 엄마·아빠 폰이 같은 일기를 함께 쓰고, 클라우드(Firebase)에 저장되어 폰을 바꿔도 이어집니다.
+인터넷이 없을 때 쓴 것도 폰에 먼저 저장했다가 연결되면 자동으로 올라갑니다.
 
 ## 기능
 
@@ -15,7 +16,23 @@
   - **캡쳐 사진**: 사진 속 글자를 폰 안에서 읽어서(한글 OCR) 말풍선마다 나눠요. 캡쳐의 날짜 표시(예: `11월 12일`)를 날짜로 쓰고, 날짜가 안 보이면 사진 만든 날이나 직접 고른 날짜로 넣어요.
   - **공유하기**: 텔레그램이나 갤러리에서 **공유 → 민한이 성장일기**를 고르면 바로 가져오기 화면으로 열려요.
   - 넣기 전에 민한이가 한 말·한 일만 체크하고, 글자·날짜·종류(한 말/한 일)를 고칠 수 있어요.
-- **백업 / 되살리기**: 기록은 폰 안에만 있으니 가끔 백업 파일을 만들어 구글 드라이브나 카톡 나에게 보내기로 보관하세요.
+- **사진**: 기록과 따로, 아무 때나 사진을 넣고 설명(선택)을 달 수 있어요. 촬영 날짜를 찾아 그 날짜에 넣고, 달력에는 파란 점으로 표시돼요.
+  사진은 긴 쪽 1280px 로 줄여 장당 약 200KB 로 저장해요 (무료 저장 공간 1GB 에 약 4천~5천 장).
+- **로그인**: 가족 비밀번호(숫자)만 입력해요. 한 번 들어가면 계속 로그인돼 있어요.
+- **백업 / 되살리기**: 글 기록을 파일로 따로 보관할 수도 있어요.
+
+## Firebase 설정 (처음 한 번)
+
+1. Firebase 콘솔 → **Authentication** → 시작하기 → 로그인 방법 → **이메일/비밀번호** 사용 설정
+2. **Firestore Database** → 데이터베이스 만들기 → 위치 `asia-northeast3 (서울)` → **프로덕션 모드**
+3. Firestore → **규칙** 탭에 [`firestore.rules`](firestore.rules) 내용을 붙여넣고 게시
+4. 가족 계정 만들기: 아이디 `happyfamily@minhan-diary.app`, 비밀번호는 `mh-<가족비밀번호>-diary`
+   (Firebase 는 비밀번호가 6자 이상이어야 해서 앱이 앞뒤에 글자를 붙여요. `www/firebase-config.js` 참고)
+
+> 비밀번호가 숫자 4자리면 편하지만 짧아요. 앱 설치 파일을 가진 사람이 마음먹고 하나씩 넣어 보면 뚫릴 수 있어요.
+> 더 안전하게 하려면 6자리 이상으로 바꾸세요 (Authentication 에서 사용자 비밀번호 변경).
+
+Firebase 프로젝트 값은 `www/firebase-config.js` 에 있어요.
 
 ## 설치 (안드로이드)
 
@@ -28,6 +45,9 @@
 npm install
 npm test            # 날짜 계산, 붙여넣기/캡쳐 글 나누기 테스트
 npm run serve       # 컴퓨터 브라우저에서 미리 보기 (http://localhost:5173)
+
+# Firebase 에뮬레이터로 시험 (실제 클라우드를 건드리지 않음): 주소 끝에 ?emu=1
+npx firebase emulators:start --only auth,firestore --project minhan-diary
 ```
 
 ### APK 만들기
@@ -48,10 +68,14 @@ cd android && ./gradlew assembleRelease   # android/app/build/outputs/apk/releas
 ```
 www/           앱 화면 (HTML/CSS/JS)
   app.js       화면 동작
-  store.js     기기 안 저장 (IndexedDB)
+  store.js     클라우드 저장 (Firebase Firestore, 오프라인 지원) + 로그인
+  local-store.js  예전 버전(폰에만 저장)의 기록 → 클라우드로 옮길 때만 사용
+  photo.js     사진 줄이기, 촬영 날짜 읽기
   parse.js     붙여넣은 글 / 캡쳐 글 → 날짜별 기록 후보
   ocr-prep.js  캡쳐를 글자 읽기 좋게 흑백으로 바꾸기
   shared.js    탄생 일수, 만 나이 계산
+src/firebase.js  Firebase SDK 묶음 (npm run vendor 가 www/vendor 로 빌드)
+firestore.rules  클라우드 접근 규칙
 android/       안드로이드 앱 (Capacitor)
 scripts/       OCR 도구 복사, 미리 보기 서버
 ```

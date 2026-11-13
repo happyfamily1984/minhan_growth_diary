@@ -1,0 +1,10 @@
+rules_version = '2';
+// 가족 계정(happyfamily)으로 로그인한 폰만 읽고 쓸 수 있다
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /families/happyfamily/{document=**} {
+      allow read, write: if request.auth != null
+        && request.auth.token.email == 'happyfamily@minhan-diary.app';
+    }
+  }
+}
