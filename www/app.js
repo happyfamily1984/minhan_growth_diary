@@ -385,8 +385,10 @@ function renderGallery() {
 const photoAdd = $('#photoAdd');
 let pendingPhotos = [];
 $('#photoFile').addEventListener('change', async (e) => {
-  const files = [...e.target.files];
-  e.target.value = '';
+  const files = await readNow(e.target);
+  if (files) handlePhotoFiles(files);
+});
+async function handlePhotoFiles(files) {
   if (!files.length) return;
   const list = $('#photoAddList');
   list.innerHTML = '<div class="muted">사진 준비 중…</div>';
@@ -395,7 +397,7 @@ $('#photoFile').addEventListener('change', async (e) => {
   pendingPhotos = [];
   for (const f of files) {
     try {
-      const [shrunk, taken] = await Promise.all([shrinkPhoto(f), photoTakenDate(f)]);
+      const [shrunk, taken] = await Promise.all([shrinkPhoto(f), f.takenDate || photoTakenDate(f)]);
       const fileDay = f.lastModified ? todaySeoul(new Date(f.lastModified)) : null;
       let date = taken || fileDay || todaySeoul();
       if (date < BIRTH_DATE) date = todaySeoul();
@@ -418,7 +420,7 @@ $('#photoFile').addEventListener('change', async (e) => {
   }
   const kb = Math.round(pendingPhotos.reduce((sum, p) => sum + p.data.length * 0.75, 0) / 1024);
   $('#photoAddInfo').textContent = `${pendingPhotos.length}장 · 약 ${kb.toLocaleString()}KB`;
-});
+}
 $('#photoAddForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
@@ -539,14 +541,69 @@ pasteBox.addEventListener('paste', (e) => {
   const imgs = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
   if (imgs.length) {
     e.preventDefault();
-    ocrImages(imgs);
+    Promise.all(imgs.map(async (f) => new File([await f.arrayBuffer()], f.name || 'paste.png', { type: f.type })))
+      .then(ocrImages)
+      .catch(() => toast('붙여넣은 사진을 읽지 못했어요'));
   }
 });
-$('#ocrFile').addEventListener('change', (e) => {
-  const files = [...e.target.files];
-  e.target.value = '';
-  if (files.length) ocrImages(files);
+$('#ocrFile').addEventListener('change', async (e) => {
+  const files = await readNow(e.target);
+  if (files?.length) ocrImages(files);
 });
+
+/**
+ * 고른 파일을 그 자리에서 바로 끝까지 읽어 둔다.
+ * 안드로이드 앱 안에서는 사진 선택 창이 준 파일을 잠깐만 읽을 수 있어서, 나중에 읽으면 권한 오류가 난다.
+ */
+async function readNow(input) {
+  const picked = [...input.files];
+  try {
+    return await Promise.all(
+      picked.map(async (f) => new File([await f.arrayBuffer()], f.name || 'photo', { type: f.type, lastModified: f.lastModified })),
+    );
+  } catch (err) {
+    toast('사진을 읽지 못했어요. 다시 골라 주세요.');
+    console.error(err);
+    return null;
+  } finally {
+    input.value = '';
+  }
+}
+
+/** 폰 앱에서는 안드로이드 기본 사진 선택 창으로 고른다 (권한 문제 없음) */
+async function pickFromGallery() {
+  const Camera = window.Capacitor?.Plugins?.Camera;
+  const { results = [] } = await Camera.chooseFromGallery({ mediaType: 0, allowMultipleSelection: true, limit: 0, includeMetadata: true, quality: 100 });
+  return Promise.all(
+    results
+      .filter((r) => r.webPath)
+      .map(async (r, i) => {
+        const blob = await (await fetch(r.webPath)).blob();
+        const fmt = (r.metadata?.format || 'jpeg').toLowerCase();
+        const made = Date.parse(r.metadata?.creationDate || '');
+        const f = new File([blob], `photo-${i}.${fmt}`, { type: blob.type || `image/${fmt}`, lastModified: made || Date.now() });
+        if (made) f.takenDate = todaySeoul(new Date(made));
+        return f;
+      }),
+  );
+}
+if (native && window.Capacitor?.Plugins?.Camera) {
+  const nativePick = (input, handler) => {
+    input.closest('label')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        const files = await pickFromGallery();
+        if (files.length) handler(files);
+      } catch (err) {
+        if (!/cancel/i.test(err?.message || '')) toast('사진을 고르지 못했어요: ' + (err?.message || err));
+      }
+    });
+    // 다른 곳에서 input.click() 을 불러도 기본 선택 창으로
+    input.click = () => input.closest('label')?.click();
+  };
+  nativePick($('#ocrFile'), ocrImages);
+  nativePick($('#photoFile'), handlePhotoFiles);
+}
 
 let workerP;
 function getWorker(onProgress) {
