@@ -162,7 +162,7 @@ export function parseText(raw, today) {
 }
 
 const OCR_TICKS = /\s+(?:[vV]{1,2}|ㄴ~?|[✓✔√]+)\s*$/;
-const OCR_TIME_TAIL = /\s+(?:오전|오후)\s*[\d:;.,\s]{1,6}$/;
+const OCR_TIME_TAIL = /\s+(?:오전|오후)\s*[\d:;.,\s]{1,6}\S{0,3}$/;
 
 /**
  * OCR 결과 줄(글자 + 위치)을 말풍선 단위로 묶는다.

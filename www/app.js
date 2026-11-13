@@ -1,7 +1,7 @@
 import { BIRTH_DATE, BIRTH_INSTANT, dayNumber, dateOfDay, age, todaySeoul } from './shared.js';
 import { store, auth$ } from './store.js';
 import { store as localStore } from './local-store.js';
-import { shrinkPhoto, photoTakenDate } from './photo.js';
+import { shrinkPhoto, photoTakenDate, decodeImage } from './photo.js';
 import { parseText, linesToBubbles } from './parse.js';
 import { binarize } from './ocr-prep.js';
 
@@ -400,8 +400,8 @@ $('#photoFile').addEventListener('change', async (e) => {
       let date = taken || fileDay || todaySeoul();
       if (date < BIRTH_DATE) date = todaySeoul();
       pendingPhotos.push({ ...shrunk, date });
-    } catch {
-      toast('읽을 수 없는 사진이 있어요');
+    } catch (err) {
+      toast(err.message || '읽을 수 없는 사진이 있어요');
     }
   }
   list.replaceChildren();
@@ -614,17 +614,21 @@ async function ocrImages(files) {
     }
     renderPicker(all, 'ocr', previews);
   } catch (err) {
-    importResult.innerHTML = `<div class="card error">${esc(err.message || err)}</div>`;
+    // 원인을 알 수 있게 사진 정보도 작게 보여 준다
+    const info = files.map((f) => `${f.type || '종류 없음'} · ${Math.round((f.size || 0) / 1024)}KB`).join(', ');
+    importResult.innerHTML = `<div class="card error">${esc(err.message || err)}<br><small class="muted">${esc(info)}</small></div>`;
   }
 }
 
 /** 흑백으로 바꾸고, 작은 사진은 키워서 글자를 잘 읽게 한다 */
 async function prepareImage(file) {
-  const bmp = await createImageBitmap(file);
-  const scale = bmp.width < 1000 ? Math.min(2, 1080 / bmp.width) : 1;
+  const bmp = await decodeImage(file);
+  const w = bmp.naturalWidth || bmp.width;
+  const h = bmp.naturalHeight || bmp.height;
+  const scale = w < 1000 ? Math.min(2, 1080 / w) : 1;
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(bmp.width * scale);
-  canvas.height = Math.round(bmp.height * scale);
+  canvas.width = Math.round(w * scale);
+  canvas.height = Math.round(h * scale);
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
