@@ -550,3 +550,8 @@ textarea.grow, .pick .pick-text.grow, .field textarea.grow { resize: none !impor
 .merge-up { border: 1px dashed var(--orange-2); background: var(--card); color: var(--orange); border-radius: 8px; padding: 2px 8px; font-size: 0.8rem; cursor: pointer; font-family: var(--font-title); }
 .ocr-originals { margin-bottom: 10px; }
 .ocr-originals summary { cursor: pointer; font-family: var(--font-title); color: #5b4c42; padding: 6px 0; }
+
+/* ---------- 날짜 비교: 캡쳐 속 날짜 표시 ---------- */
+.pick-datecrop { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-family: var(--font-title); font-size: 0.85rem; color: #5b4c42; }
+.pick-datecrop img { max-height: 44px; max-width: 70%; border-radius: 10px; border: 1px solid var(--line); }
+.pick-datecrop.none { color: var(--muted); font-family: inherit; }

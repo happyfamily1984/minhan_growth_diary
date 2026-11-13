@@ -801,8 +801,14 @@ async function ocrImages(files) {
       color.height = original.height;
       color.getContext('2d').putImageData(original, 0, 0);
       for (const b of found) {
-        const { rect, ...rest } = b;
-        all.push({ ...rest, shotDate, checked: false, crops: rect ? [cropBubble(color, rect)] : [] });
+        const { rect, dateBox, ...rest } = b;
+        all.push({
+          ...rest,
+          shotDate,
+          checked: false,
+          crops: rect ? [cropBubble(color, rect)] : [],
+          dateCrop: dateBox ? cropBubble(color, widen(dateBox, original.width)) : null, // 캡쳐 속 날짜 표시 부분
+        });
       }
     }
     renderPicker(mergeSameDate(all), 'ocr', previews, { images });
@@ -887,7 +893,7 @@ async function readDatePills(worker, lines, original, rects) {
     // '2월 15일 입' 처럼 옆 글자가 붙어도 날짜 부분만 찾는다
     const m = text.match(/(?:(\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
     const d = m ? parseDateLine(m[0], todaySeoul()) : parseDateLine(text, todaySeoul());
-    if (d && !out.some((x) => Math.abs(x.y - box.y0) < 40 && x.date === d)) out.push({ y: box.y0, date: d });
+    if (d && !out.some((x) => Math.abs(x.y - box.y0) < 40 && x.date === d)) out.push({ y: box.y0, date: d, box: pad ? box : tightBox(original, box) });
   }
   return out;
 }
@@ -909,6 +915,38 @@ function getBilingualWorker() {
     throw e;
   });
   return bilingualP;
+}
+
+/** 날짜 표시 상자를 옆으로 넓혀서(가운데 기준) 잘라 보여 줄 범위 */
+function widen(b, W) {
+  const h = b.y1 - b.y0;
+  const cx = (b.x0 + b.x1) / 2;
+  const half = Math.max((b.x1 - b.x0) / 2 + h, W * 0.16);
+  return { x0: Math.max(0, cx - half), x1: Math.min(W - 1, cx + half), y0: b.y0 - h * 0.3, y1: b.y1 + h * 0.3 };
+}
+/** 넓은 틈 영역 안에서 실제 날짜 표시(색 바탕) 부분만 좁힌다 */
+function tightBox(img, r) {
+  const { data, width: W } = img;
+  const cx = Math.round((r.x0 + r.x1) / 2);
+  let top = -1;
+  let bottom = -1;
+  // 가운데 세로줄에서 배경과 다른(진한) 부분을 찾는다
+  const lumAt = (x, y) => {
+    const i = (Math.round(y) * W + x) * 4;
+    return (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
+  };
+  const vals = [];
+  for (let y = Math.ceil(r.y0); y < r.y1; y++) vals.push(lumAt(cx, y));
+  const sorted = [...vals].sort((a, b) => a - b);
+  const bg = sorted[Math.floor(sorted.length * 0.8)];
+  vals.forEach((v, k) => {
+    if (bg - v > 18) {
+      if (top < 0) top = k;
+      bottom = k;
+    }
+  });
+  if (top < 0) return r;
+  return { x0: r.x0 + (r.x1 - r.x0) * 0.25, x1: r.x1 - (r.x1 - r.x0) * 0.25, y0: r.y0 + top, y1: r.y0 + bottom };
 }
 
 /** 같은 날짜인 후보들은 처음부터 하나로 합친다 (날짜를 못 찾은 것끼리도 하나로) */
@@ -1066,6 +1104,15 @@ function renderPicker(items, source, previews = [], { restored = false, images =
       saveDraft();
     });
     r.crops = [...(it.crops || [])];
+    // 날짜 비교용: 캡쳐 속 날짜 표시 그림, 없으면 사진 날짜 안내
+    if (source === 'ocr') {
+      $('.pick-crops', row).insertAdjacentHTML(
+        'beforebegin',
+        it.dateCrop
+          ? `<div class="pick-datecrop"><span>캡쳐 날짜</span><img src="${it.dateCrop}" alt="캡쳐 날짜"></div>`
+          : `<div class="pick-datecrop none">📷 캡쳐에 날짜 표시가 없어요${it.shotDate ? ` · 사진 날짜 ${prettyDate(it.shotDate)}` : ''}</div>`,
+      );
+    }
     r.showCrops = () => {
       $('.pick-crops', row).innerHTML = r.crops.map((u) => `<img src="${u}" alt="말풍선">`).join('');
     };
@@ -1121,6 +1168,8 @@ function renderPicker(items, source, previews = [], { restored = false, images =
         savedAt: new Date().toISOString(),
         items: rows.map((r) => ({
           crops: r.crops,
+          dateCrop: r.it.dateCrop || null,
+          shotDate: r.it.shotDate || null,
           text: r.ta.value,
           date: r.it.date || null,
           dateValue: r.date.value,

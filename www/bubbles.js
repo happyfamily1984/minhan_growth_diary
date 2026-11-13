@@ -125,7 +125,7 @@ export function bubblesFromOcr(lines, img, today, bin = null, opts = {}) {
     const cx = (line.bbox.x0 + line.bbox.x1) / 2;
     if (Math.abs(cx - W / 2) > W * 0.2 || text.length > 24) continue;
     const d = parseDateLine(text, today);
-    if (d) dates.push({ y: line.bbox.y0, date: d });
+    if (d) dates.push({ y: line.bbox.y0, date: d, box: line.bbox });
   }
   // 따로 다시 읽은 날짜 표시 (말풍선·시간과 겹친 것)
   for (const d of opts.dates || []) dates.push(d);
@@ -180,7 +180,7 @@ export function bubblesFromOcr(lines, img, today, bin = null, opts = {}) {
     if (!text) continue;
     const above = dates.filter((d) => d.y < r.y0).pop();
     const cx = (r.x0 + r.x1) / 2;
-    out.push({ text, date: above?.date || null, time, side: cx < W / 2 ? 'left' : 'right', from: '', rect: r });
+    out.push({ text, date: above?.date || null, time, side: cx < W / 2 ? 'left' : 'right', from: '', rect: r, dateBox: above?.box || null });
   }
   return out;
 }
