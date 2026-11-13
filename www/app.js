@@ -16,6 +16,7 @@ const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 const SOURCE_LABEL = { paste: '붙여넣기', ocr: '캡쳐', telegram: '텔레그램', export: '대화 파일' };
 const KIND = {
   say: { icon: '💬', label: '한 말', field: '민한이가 한 말', ph: '“엄마, 구름이 솜사탕처럼 생겼어!”' },
+  funny: { icon: '😂', label: '웃긴 말', field: '민한이가 한 웃긴 말', ph: '“아빠는 왜 수염이 나? 고양이야?”' },
   did: { icon: '🌱', label: '한 일', field: '민한이가 한 일', ph: '처음으로 혼자 자전거를 탔어요' },
 };
 const native = Boolean(window.Capacitor?.isNativePlatform?.());
@@ -1154,6 +1155,7 @@ function renderPicker(items, source, previews = [], { restored = false, images =
     <div class="pick-tools">
       <span class="small">모두</span>
       <button class="btn small" data-allkind="say">💬 한 말로</button>
+      <button class="btn small" data-allkind="funny">😂 웃긴 말로</button>
       <button class="btn small" data-allkind="did">🌱 한 일로</button>
       <input type="date" class="all-date" min="${BIRTH_DATE}" aria-label="모두 이 날짜로">
       <button class="btn small" data-alldate>날짜로</button>
@@ -1190,9 +1192,9 @@ function renderPicker(items, source, previews = [], { restored = false, images =
       r.kindBtn.textContent = `${KIND[k].icon} ${KIND[k].label}`;
     };
     r.setKind = setRowKind;
-    setRowKind(it.kind === 'did' ? 'did' : 'say');
+    setRowKind(KIND[it.kind] ? it.kind : 'say');
     r.kindBtn.addEventListener('click', () => {
-      setRowKind(r.kind === 'say' ? 'did' : 'say');
+      setRowKind({ say: 'funny', funny: 'did', did: 'say' }[r.kind] || 'say'); // 한 말 → 웃긴 말 → 한 일
       saveDraft();
     });
     r.crops = [...(it.crops || [])];
@@ -1450,9 +1452,11 @@ const ALL_KEY = 'minhan-all-filter';
 const allFilter = (() => {
   try {
     const v = JSON.parse(localStorage.getItem(ALL_KEY) || 'null');
+    // 예전에 저장한 조건에는 '웃긴 말'이 없어서 켜 준다
+    if (v && !v.kinds.includes('funny')) v.kinds.push('funny');
     if (v) return { ages: new Set(v.ages), kinds: new Set(v.kinds), authors: new Set(v.authors), order: v.order || 'new' };
   } catch {}
-  return { ages: new Set(), kinds: new Set(['say', 'did', 'photo']), authors: new Set(), order: 'new' };
+  return { ages: new Set(), kinds: new Set(['say', 'funny', 'did', 'photo']), authors: new Set(), order: 'new' };
 })();
 function saveAllFilter() {
   try {
@@ -1500,7 +1504,7 @@ function renderAll() {
   for (let a = 0; a <= maxAge; a++) fAge.append(chip(`${a}세`, allFilter.ages.has(a), () => toggleIn(allFilter.ages, a)));
   const fKind = $('#fKind');
   fKind.replaceChildren();
-  for (const [k, l] of [['say', '💬 한 말'], ['did', '🌱 한 일'], ['photo', '📷 사진']])
+  for (const [k, l] of [['say', '💬 한 말'], ['funny', '😂 웃긴 말'], ['did', '🌱 한 일'], ['photo', '📷 사진']])
     fKind.append(
       chip(l, allFilter.kinds.has(k), () => {
         if (allFilter.kinds.has(k) && allFilter.kinds.size === 1) return; // 하나는 남긴다

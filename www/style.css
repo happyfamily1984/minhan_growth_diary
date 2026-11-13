@@ -647,3 +647,9 @@ mark { background: #ffe58a; border-radius: 3px; padding: 0 1px; }
 .check-list { list-style: none; padding: 0; margin: 0 0 6px; font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px; }
 .check-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .check-btns .btn { white-space: nowrap; font-size: min(0.85rem, 3.4vw); }
+
+/* ---------- 웃긴 말 ---------- */
+.entry.kind-funny { border-left-color: #ffc93c; }
+.entry.kind-funny .entry-text::before { content: '😂 “'; }
+.all-item.kind-funny .all-text::before { content: '😂 '; }
+.seg span { font-size: min(1.15rem, 4.2vw); padding: 12px 4px; }

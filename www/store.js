@@ -81,7 +81,7 @@ function normalize(e) {
   const now = new Date().toISOString();
   return {
     id: e.id || crypto.randomUUID(),
-    kind: e.kind === 'did' ? 'did' : 'say',
+    kind: ['did', 'funny'].includes(e.kind) ? e.kind : 'say', // say 한 말 · funny 웃긴 말 · did 한 일
     date: e.date,
     time: String(e.time || ''),
     text,
