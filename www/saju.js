@@ -8,6 +8,7 @@ export const BRANCHES = ['자', '축', '인', '묘', '진', '사', '오', '미',
 export const BRANCHES_H = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
 const ANIMALS = ['쥐', '소', '호랑이', '토끼', '용', '뱀', '말', '양', '원숭이', '닭', '개', '돼지'];
 const EL = ['목', '화', '토', '금', '수'];
+const PLAIN = ['나무', '불', '흙', '쇠', '물'];
 const EL_NAME = { 목: '나무(木)', 화: '불(火)', 토: '흙(土)', 금: '쇠(金)', 수: '물(水)' };
 const STEM_EL = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4];
 const BRANCH_EL = [4, 2, 0, 0, 2, 1, 1, 2, 3, 3, 2, 4];
@@ -116,6 +117,36 @@ const GOD_TEXT = {
   정인: { life: '배우기를 좋아하고 마음이 따뜻해요. 윗사람의 사랑과 도움을 많이 받아요.', period: '배움과 도움이 들어오는 시기예요. 공부가 잘되고 어른들의 응원과 도움을 받아요. 감사한 마음을 표현해 보세요.', day: '도움과 사랑을 받는 날. 공부나 독서가 잘돼요.' },
 };
 
+// 일간별 장점·조심할 점
+const DM_MORE = [
+  { plus: '솔직하고 책임감이 강하며 꿈이 커요.', minus: '고집이 세서 한번 정하면 잘 바꾸지 않아요. 다른 의견도 들어 보면 더 크게 자라요.' },
+  { plus: '눈치가 빠르고 사교성이 좋아 어디서든 사랑받아요.', minus: '남의 눈치를 많이 보다 마음이 지칠 수 있어요. 내 생각을 분명히 말하는 연습이 좋아요.' },
+  { plus: '긍정적이고 용감하며 정이 많아요.', minus: '감정이 빨리 끓었다 식어요. 시작한 일을 끝까지 마무리하는 힘을 기르면 좋아요.' },
+  { plus: '배려심이 깊고 손재주와 집중력이 뛰어나요.', minus: '속마음을 잘 드러내지 않아 혼자 끙끙 앓을 수 있어요. 마음을 나누면 가벼워져요.' },
+  { plus: '침착하고 믿음직하며 의리가 있어요.', minus: '변화를 싫어하고 느긋해 보일 수 있어요. 새로운 것에 한 발 먼저 나서 보면 좋아요.' },
+  { plus: '세심하고 성실하며 살림·관리 능력이 좋아요.', minus: '걱정이 많고 생각이 복잡해질 때가 있어요. 너무 완벽하려 하지 않아도 괜찮아요.' },
+  { plus: '정의롭고 추진력이 있으며 뒤끝이 없어요.', minus: '말이 직설적이라 오해를 살 수 있어요. 부드러운 말투가 더 큰 힘이 돼요.' },
+  { plus: '감각이 뛰어나고 깔끔하며 맡은 일을 완벽하게 해내요.', minus: '예민하고 상처를 잘 받아요. 스스로를 칭찬해 주는 습관이 좋아요.' },
+  { plus: '배짱이 있고 생각의 폭이 넓으며 적응력이 좋아요.', minus: '하고 싶은 게 많아 한곳에 오래 머물기 어려워요. 우선순위를 정하면 좋아요.' },
+  { plus: '영리하고 인정이 많으며 아이디어가 샘솟아요.', minus: '기분에 따라 마음이 자주 바뀔 수 있어요. 규칙적인 생활이 중심을 잡아 줘요.' },
+];
+const JOB_EL = {
+  목: '선생님·교육, 책·출판, 디자인, 환경·식물, 의료(한의학), 기획',
+  화: '방송·연예, 예술·공연, 광고·마케팅, 요리, IT·게임, 강연',
+  토: '건축·부동산, 농업·식품, 상담·복지, 공무원, 중개·무역 관리',
+  금: '법조·경찰, 금융·회계, 엔지니어·기계, 외과 의사, 군인, 운동선수',
+  수: '연구·과학, 무역·여행, IT·데이터, 심리·철학, 작가, 해양·수산',
+};
+const JOB_GOD = {
+  비겁: '내 힘으로 해내는 일(자기 사업, 프리랜서, 운동)',
+  식상: '만들고 표현하는 일(예술, 요리, 유튜브·창작, 연구개발, 교육)',
+  재성: '사람과 돈이 오가는 일(사업, 영업, 금융, 유통)',
+  관성: '조직과 규칙 속에서 빛나는 일(공무원, 대기업, 법·의료, 군·경찰)',
+  인성: '배우고 가르치는 일(교수, 연구원, 의사, 작가, 상담)',
+};
+const SAMHAP = [[8, 0, 4], [2, 6, 10], [5, 9, 1], [11, 3, 7]]; // 신자진, 인오술, 사유축, 해묘미
+const STEM_HAP = { 0: 5, 5: 0, 1: 6, 6: 1, 2: 7, 7: 2, 3: 8, 8: 3, 4: 9, 9: 4 }; // 갑기·을경·병신·정임·무계
+
 function analyze(p) {
   const pillars = [p.year, p.month, p.day, p.hour].filter(Boolean);
   const counts = [0, 0, 0, 0, 0];
@@ -180,6 +211,49 @@ function periodFortune(p, a, pl, kind) {
   return { stars, gods: [gS, gB], text: [...body, ...notes] };
 }
 
+/** 두 사람 궁합: 일간 관계, 천간합, 일지·띠의 합과 충, 부족한 기운 채워 주기 */
+function compatibility(meName, me, meA, otherName, ot, otA) {
+  let score = 60;
+  const notes = [];
+  const a = STEM_EL[me.day.s];
+  const b = STEM_EL[ot.day.s];
+  const withO = josa(otherName, '과', '와');
+  if (STEM_HAP[me.day.s] === ot.day.s) {
+    score += 15;
+    notes.push('두 사람의 타고난 기운(일간)이 서로 끌어당기는 짝(천간합)이에요. 말하지 않아도 마음이 통하는 인연이에요.');
+  }
+  if (a === b) {
+    score += 8;
+    notes.push(`둘 다 ${EL_NAME[EL[a]]} 기운이라 생각과 취향이 꼭 닮았어요. 친구처럼 편하고, 같은 것을 좋아해서 함께하는 시간이 즐거워요.`);
+  } else if (mod(b + 1, 5) === a) {
+    score += 14;
+    notes.push(`${otherName}의 기운이 ${meName}의 기운을 키워 주는 관계예요(${josa(PLAIN[b], '이', '가')} ${josa(PLAIN[a], '을', '를')} 살려요). ${josa(meName, '은', '는')} ${withO} 함께 있으면 마음이 든든하고 힘이 나요.`);
+  } else if (mod(a + 1, 5) === b) {
+    score += 12;
+    notes.push(`${meName}의 기운이 ${otherName}의 기운을 살려 주는 관계예요(${josa(PLAIN[a], '이', '가')} ${josa(PLAIN[b], '을', '를')} 키워요). ${meName}의 존재가 ${otherName}에게 큰 기쁨과 힘이 돼요.`);
+  } else if (mod(a + 2, 5) === b) {
+    score += 2;
+    notes.push(`${meName}의 기운이 ${otherName}의 기운을 단단하게 잡아 주는 관계예요(${josa(PLAIN[a], '이', '가')} ${josa(PLAIN[b], '을', '를')} 다듬어요). 서로에게 든든한 버팀목이 돼요.`);
+  } else {
+    score += 2;
+    notes.push(`${otherName}의 기운이 ${meName}의 기운을 바르게 이끌어 주는 관계예요(${josa(PLAIN[b], '이', '가')} ${josa(PLAIN[a], '을', '를')} 다듬어요). ${josa(otherName, '이', '가')} 곁에 있으면 ${josa(meName, '이', '가')} 한 단계씩 쑥쑥 자라요.`);
+  }
+  if (HARMONY[me.day.b] === ot.day.b) (score += 8), notes.push('마음 깊은 곳(일지)이 서로 잘 맞아 함께 지내기 편해요.');
+  if (CLASH[me.day.b] === ot.day.b) (score += 3), notes.push('서로 다른 매력을 가지고 있어, 함께하면 몰랐던 세상을 알려 주는 사이예요.');
+  const sameGroup = SAMHAP.some((g) => g.includes(me.year.b) && g.includes(ot.year.b) && me.year.b !== ot.year.b);
+  if (sameGroup || HARMONY[me.year.b] === ot.year.b) (score += 7), notes.push(`${ANIMALS[me.year.b]}띠와 ${ANIMALS[ot.year.b]}띠는 서로 잘 어울리는 띠예요.`);
+  else if (CLASH[me.year.b] === ot.year.b) (score += 2), notes.push(`${ANIMALS[me.year.b]}띠와 ${ANIMALS[ot.year.b]}띠는 서로 부족한 점을 채워 주는 사이예요. 이야기를 많이 나눌수록 더 가까워져요.`);
+  if (otA.counts[meA.useful] >= 2) (score += 6), notes.push(`${josa(otherName, '이', '가')} ${meName}에게 필요한 ${EL_NAME[EL[meA.useful]]} 기운을 많이 가지고 있어 곁에 있으면 힘이 돼요.`);
+  if (meA.counts[otA.useful] >= 2) (score += 5), notes.push(`${josa(meName, '도', '도')} ${otherName}에게 필요한 ${EL_NAME[EL[otA.useful]]} 기운을 채워 줘요.`);
+  if (notes.length < 3)
+    notes.push(`${meName}의 장점(${DM_MORE[me.day.s].plus.replace(/\.$/, '')})과 ${otherName}의 장점(${DM_MORE[ot.day.s].plus.replace(/\.$/, '')})이 만나 서로를 더 빛나게 해 줘요.`);
+  // 좋은 점 위주로: 점수는 높게, 한마디도 좋은 쪽으로
+  score = Math.max(80, Math.min(99, Math.round(score + 12)));
+  const word = score >= 95 ? '천생연분 💖' : score >= 90 ? '찰떡궁합 💞' : score >= 85 ? '아주 좋은 궁합 😊' : '함께라서 더 좋은 궁합 🥰';
+  notes.push(`${josa(meName, '과', '와')} ${josa(otherName, '은', '는')} 서로에게 소중한 선물 같은 사이예요. 함께 웃고 이야기하는 시간이 많을수록 더 깊어져요.`);
+  return { score, word, notes };
+}
+
 const starText = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
 
 /**
@@ -187,7 +261,7 @@ const starText = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
  * @param person { name, date, time }
  * @param today 'YYYY-MM-DD' (한국 날짜)
  */
-export function readSaju(person, today, nowTime = '12:00') {
+export function readSaju(person, today, nowTime = '12:00', others = []) {
   const p = fourPillars(person.date, person.time);
   const a = analyze(p);
   const name = person.name;
@@ -205,6 +279,58 @@ export function readSaju(person, today, nowTime = '12:00') {
     `가장 많이 보이는 성향은 '${topGod}'이에요. ${GOD_TEXT[topGod].life}`,
     `나에게 힘이 되는 기운은 ${EL_NAME[useful]}이에요. ${EL_TIP[useful].lack}`,
   ];
+  // ---- 평생운세 자세히 ----
+  const godsSorted = Object.entries(a.gods).sort((x, y) => y[1] - x[1]).map((x) => x[0]);
+  const groups = {};
+  for (const [g, n] of Object.entries(a.gods)) groups[GOD_GROUP[g]] = (groups[GOD_GROUP[g]] || 0) + n;
+  const topGroup = Object.entries(groups).sort((x, y) => y[1] - x[1])[0][0];
+  const second = godsSorted.find((g) => GOD_GROUP[g] !== GOD_GROUP[topGod]);
+  const yinCount = [p.year, p.month, p.day, p.hour].filter(Boolean).reduce((n, x) => n + (x.s % 2) + (x.b % 2), 0);
+  const total = [p.year, p.month, p.day, p.hour].filter(Boolean).length * 2;
+  const personality = [
+    `장점: ${DM_MORE[p.day.s].plus}`,
+    `조심할 점: ${DM_MORE[p.day.s].minus}`,
+    `'${topGod}' 성향이 가장 강해요. ${GOD_TEXT[topGod].life}` + (second ? ` 또 '${second}' 성향도 있어 ${GOD_TEXT[second].life}` : ''),
+    yinCount > total / 2 + 1
+      ? '음(陰)의 기운이 많아 차분하고 생각이 깊은 편이에요. 속으로 정리한 뒤 행동해요.'
+      : yinCount < total / 2 - 1
+        ? '양(陽)의 기운이 많아 활발하고 행동이 빨라요. 생각보다 몸이 먼저 움직여요.'
+        : '음과 양이 고르게 있어 차분함과 활발함을 함께 가지고 있어요.',
+  ];
+  const elFirst = EL[STEM_EL[p.day.s]];
+  const jobs = [
+    `타고난 ${EL_NAME[elFirst]} 기운으로는 ${JOB_EL[elFirst]} 쪽이 잘 맞아요.`,
+    `사주에 '${topGroup}' 기운이 많아 ${JOB_GOD[topGroup]}에서 힘을 발휘해요.`,
+    `힘이 되는 ${EL_NAME[useful]} 기운과 관련된 ${JOB_EL[useful].split(', ').slice(0, 3).join(', ')} 분야도 운을 살려 줘요.`,
+  ];
+  const usefulStems = STEMS.filter((_, i) => STEM_EL[i] === a.useful).join('·');
+  const sam = SAMHAP.find((g) => g.includes(p.year.b)).filter((b) => b !== p.year.b);
+  const goodAnimals = [...new Set([...sam, HARMONY[p.year.b]])].map((b) => ANIMALS[b] + '띠');
+  const match = [
+    `${EL_NAME[useful]} 기운을 타고난 사람(${usefulStems} 일간)이 곁에 있으면 서로 힘이 돼요.`,
+    `띠로는 ${goodAnimals.join(', ')}와 잘 어울려요. ${ANIMALS[CLASH[p.year.b]]}띠와는 서로 다른 매력이 있어 함께하면 배울 게 많아요.`,
+    a.strong
+      ? '스스로 힘이 넘치는 편이라, 차분하게 들어 주고 방향을 잡아 주는 사람과 잘 맞아요.'
+      : '마음이 섬세한 편이라, 따뜻하게 응원해 주고 믿어 주는 사람과 잘 맞아요.',
+  ];
+  const blocks = [
+    { t: '🌱 타고난 기운', p: life.slice(0, 3) },
+    { t: '😊 성격 특성', p: personality },
+    { t: '💼 어울리는 직업', p: jobs },
+    { t: '🤝 잘 맞는 사람', p: match },
+  ];
+  for (const o of others) {
+    const op = fourPillars(o.date, o.time);
+    const oa = analyze(op);
+    const c = compatibility(name, p, a, o.name, op, oa);
+    // 누가 보든 같은 점수가 나오게 (양쪽에서 본 점수의 가운데)
+    const back = compatibility(o.name, op, oa, name, p, a);
+    c.score = Math.round((c.score + back.score) / 2);
+    c.word = c.score >= 95 ? '천생연분 💖' : c.score >= 90 ? '찰떡궁합 💞' : c.score >= 85 ? '아주 좋은 궁합 😊' : '함께라서 더 좋은 궁합 🥰';
+    blocks.push({ t: `💞 ${josa(o.name, '과', '와')}의 궁합 · ${c.score}점 ${c.word}`, p: c.notes });
+  }
+  blocks.push({ t: '🍀 생활 조언', p: [life[4]] });
+
   const ty = Number(today.slice(0, 4));
   const yearP = fourPillars(`${ty}-07-01`).year;
   const monthP = fourPillars(today, nowTime).month;
@@ -219,7 +345,7 @@ export function readSaju(person, today, nowTime = '12:00') {
     chart: [p.hour, p.day, p.month, p.year],
     counts: a.counts,
     sections: {
-      life: { title: '평생운세', head: `${dm.img} · ${a.strong ? '신강' : '신약'}`, text: life },
+      life: { title: '평생운세', head: `${dm.img} · ${a.strong ? '신강' : '신약'}`, text: [], blocks },
       year: { title: `${ty}년 운세`, head: `${yearP.ko}(${yearP.hanja})년 · ${starText(yr.stars)}`, text: yr.text },
       month: { title: '이달의 운세', head: `${monthP.ko}(${monthP.hanja})월 · ${starText(mo.stars)}`, text: mo.text },
       day: { title: '오늘의 운세', head: `${dayP.ko}(${dayP.hanja})일 · ${starText(dy.stars)}`, text: [...dy.text, lucky] },

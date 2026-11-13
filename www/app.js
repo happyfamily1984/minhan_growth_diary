@@ -116,9 +116,20 @@ function renderList(container, list, opts = {}) {
 // ---------------- 화면 전환 (안드로이드 뒤로가기 지원) ----------------
 const VIEWS = ['home', 'calendar', 'photos', 'import', 'search', 'all'];
 let currentView = 'home';
-function showView(name, { push = true } = {}) {
+// 폰 앱: 안드로이드 뒤로가기를 직접 처리한다 (메뉴 안의 행동 → 메뉴 첫 화면 → 오늘 → 종료할까요?)
+const AppPlugin = window.Capacitor?.Plugins?.App;
+const nativeBack = native && !!AppPlugin;
+const actionStack = { calendar: [], all: [] }; // 메뉴 안에서 한 행동(되돌리기용)
+let viewTrail = []; // 설정 → 가져오기처럼 안쪽으로 들어간 화면들
+function showView(name, { push = true, sub = false } = {}) {
   if (!VIEWS.includes(name)) name = 'home';
-  if (push && name !== currentView) history.pushState({ view: name }, '', name === 'home' ? '#' : `#${name}`);
+  if (!nativeBack && push && name !== currentView) history.pushState({ view: name }, '', name === 'home' ? '#' : `#${name}`);
+  if (nativeBack && name !== currentView) {
+    if (sub) viewTrail.push(currentView);
+    else if (push) viewTrail = [];
+    if (name === 'home') viewTrail = [];
+    if (push) for (const k in actionStack) if (k !== name) actionStack[k] = []; // 다른 메뉴로 가면 새로 시작
+  }
   if (name !== currentView) shownNew.clear();
   currentView = name;
   for (const s of $$('.view')) s.hidden = s.id !== `view-${name}`;
@@ -133,25 +144,72 @@ function showView(name, { push = true } = {}) {
 }
 $('#topLeftBtn').addEventListener('click', () => {
   if (currentView !== 'home') return showView('home');
-  showView('all'); // 찾기는 전체보기에서
+  showView('all', { sub: true }); // 찾기는 전체보기에서
   setTimeout(() => $('#allSearch').focus(), 200);
 });
 $('#settingsBtn').addEventListener('click', () => {
-  showView('search');
+  showView('search', { sub: true });
   setTimeout(() => $('#settingsBox').scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
 });
 for (const b of $$('[data-view]')) b.addEventListener('click', () => showView(b.dataset.view));
 
 // 창(dialog) 은 열 때 history 를 하나 쌓아서, 안드로이드 뒤로가기로 닫히게 한다
 function openDialog(d) {
-  history.pushState({ dialog: d.id }, '');
+  if (!nativeBack) history.pushState({ dialog: d.id }, '');
   d.showModal();
 }
 function closeDialog(d) {
   if (!d.open) return;
-  if (history.state?.dialog === d.id) history.back(); // popstate 에서 닫힘
+  if (!nativeBack && history.state?.dialog === d.id) history.back(); // popstate 에서 닫힘
   else d.close();
 }
+
+/** 안드로이드 뒤로가기 */
+function goBack() {
+  const exitDlg = $('#exitDialog');
+  const open = $$('dialog').filter((d) => d.open).pop();
+  if (open) return closeDialog(open); // 열린 창(종료할까요? 포함)부터 닫는다
+  const st = actionStack[currentView];
+  if (st?.length) return restoreAction(currentView, st.pop()); // 메뉴 안에서 한 행동 되돌리기
+  if (viewTrail.length) return showView(viewTrail.pop(), { push: false });
+  if (currentView !== 'home') return showView('home', { push: false });
+  if (window.scrollY > 120) return window.scrollTo({ top: 0, behavior: 'smooth' }); // 오늘 맨 위부터
+  openDialog(exitDlg);
+}
+let restoring = false;
+function pushAction(view, snap) {
+  if (!nativeBack || restoring) return;
+  const st = actionStack[view];
+  const last = st[st.length - 1];
+  if (last && JSON.stringify(last) === JSON.stringify(snap)) return;
+  st.push(snap);
+  if (st.length > 60) st.shift();
+}
+const snapCal = () => pushAction('calendar', { calMonth, selectedDate });
+const snapAll = () =>
+  pushAction('all', { ages: [...allFilter.ages], kinds: [...allFilter.kinds], authors: [...allFilter.authors], order: allFilter.order, q: $('#allSearch').value });
+function restoreAction(view, snap) {
+  restoring = true;
+  if (view === 'calendar') {
+    calMonth = snap.calMonth;
+    selectedDate = snap.selectedDate;
+    renderCalendar();
+  } else if (view === 'all') {
+    allFilter.ages = new Set(snap.ages);
+    allFilter.kinds = new Set(snap.kinds);
+    allFilter.authors = new Set(snap.authors);
+    allFilter.order = snap.order;
+    $('#allSearch').value = snap.q;
+    saveAllFilter();
+    renderAll();
+  }
+  restoring = false;
+}
+if (nativeBack) {
+  AppPlugin.addListener('backButton', goBack);
+  $('#exitYes').addEventListener('click', () => AppPlugin.exitApp());
+}
+$('#exitNo').addEventListener('click', () => closeDialog($('#exitDialog')));
 window.addEventListener('popstate', () => {
   const open = $$('dialog').find((d) => d.open);
   if (open) {
@@ -329,10 +387,12 @@ function selectDate(d) {
   calMonth = d.slice(0, 7);
 }
 $('#calPrev').addEventListener('click', () => {
+  snapCal();
   if (calMonth > BIRTH_DATE.slice(0, 7)) calMonth = shiftMonth(calMonth, -1);
   renderCalendar();
 });
 $('#calNext').addEventListener('click', () => {
+  snapCal();
   calMonth = shiftMonth(calMonth, 1);
   renderCalendar();
 });
@@ -374,6 +434,7 @@ function renderMonthPicker() {
     b.addEventListener('click', () => {
       // 그 달에 오늘이 있으면 오늘, 태어난 달이면 생일, 아니면 1일을 고른다
       const d = ym === today.slice(0, 7) ? today : ym === BIRTH_DATE.slice(0, 7) ? BIRTH_DATE : `${ym}-01`;
+      snapCal();
       selectDate(d);
       closeDialog(monthPicker);
       renderCalendar();
@@ -383,6 +444,7 @@ function renderMonthPicker() {
   $('#pickTitle').textContent = `${pickYear}년`;
 }
 $('#pickToday').addEventListener('click', () => {
+  snapCal();
   selectDate(todaySeoul());
   closeDialog(monthPicker);
   renderCalendar();
@@ -414,6 +476,7 @@ async function renderCalendar() {
     btn.innerHTML = `<span>${d.getUTCDate()}</span>`;
     btn.disabled = ymd < BIRTH_DATE;
     btn.addEventListener('click', () => {
+      if (ymd !== selectedDate) snapCal();
       selectDate(ymd);
       renderCalendar();
     });
@@ -1353,7 +1416,8 @@ function openSaju(key, tab = 'life') {
   const f = FAMILY[key];
   const now = new Date();
   const hhmm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
-  sajuNow = readSaju(f, todaySeoul(), hhmm);
+  const others = { child: ['dad', 'mom'], dad: ['mom', 'child'], mom: ['dad', 'child'] }[key].map((k) => FAMILY[k]);
+  sajuNow = readSaju(f, todaySeoul(), hhmm, others);
   const [y, m, d] = f.date.split('-').map(Number);
   $('#sajuTitle').textContent = `🔮 ${f.label} 사주`;
   $('#sajuBirth').textContent = `${y}년 ${m}월 ${d}일 ${koTime(f.time)} (양력)`;
@@ -1368,7 +1432,11 @@ function openSaju(key, tab = 'life') {
 function showSajuTab(tab) {
   for (const b of $$('#sajuTabs button')) b.classList.toggle('on', b.dataset.tab === tab);
   const sec = sajuNow.sections[tab];
-  $('#sajuBody').innerHTML = `<h4>${sec.title}</h4><div class="saju-sub">${esc(sec.head)}</div>${sec.text.map((t) => `<p>${esc(t)}</p>`).join('')}`;
+  const blocks = sec.blocks
+    ? sec.blocks.map((b) => `<div class="saju-block"><h5>${esc(b.t)}</h5>${b.p.map((t) => `<p>${esc(t)}</p>`).join('')}</div>`).join('')
+    : sec.text.map((t) => `<p>${esc(t)}</p>`).join('');
+  $('#sajuBody').innerHTML = `<h4>${sec.title}</h4><div class="saju-sub">${esc(sec.head)}</div>${blocks}`;
+  $('#sajuBody').scrollIntoView({ block: 'nearest' });
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-saju]');
@@ -1400,11 +1468,22 @@ function chip(label, on, onClick) {
 }
 /** 여러 개 고르기: 비어 있으면 '전체' */
 function toggleIn(set, v) {
+  snapAll();
   set.has(v) ? set.delete(v) : set.add(v);
   saveAllFilter();
   renderAll();
 }
 let allTimer;
+let lastQuery = '';
+$('#allSearch').addEventListener('focus', () => (lastQuery = $('#allSearch').value));
+$('#allSearch').addEventListener('change', () => {
+  // 찾기를 마치면(입력 끝) 그 전 상태를 되돌리기용으로 남긴다
+  const now = $('#allSearch').value;
+  $('#allSearch').value = lastQuery;
+  snapAll();
+  $('#allSearch').value = now;
+  lastQuery = now;
+});
 $('#allSearch').addEventListener('input', () => {
   clearTimeout(allTimer);
   allTimer = setTimeout(renderAll, 200);
@@ -1416,7 +1495,7 @@ function renderAll() {
   // --- 고르기 칸 ---
   const maxAge = ageOf(today);
   const fAge = $('#fAge');
-  fAge.replaceChildren(chip('전체', !allFilter.ages.size, () => (allFilter.ages.clear(), saveAllFilter(), renderAll())));
+  fAge.replaceChildren(chip('전체', !allFilter.ages.size, () => (snapAll(), allFilter.ages.clear(), saveAllFilter(), renderAll())));
   for (let a = 0; a <= maxAge; a++) fAge.append(chip(`${a}세`, allFilter.ages.has(a), () => toggleIn(allFilter.ages, a)));
   const fKind = $('#fKind');
   fKind.replaceChildren();
@@ -1431,11 +1510,11 @@ function renderAll() {
     ['아빠', '엄마'].indexOf(b) - ['아빠', '엄마'].indexOf(a) || a.localeCompare(b),
   );
   const fAuthor = $('#fAuthor');
-  fAuthor.replaceChildren(chip('전체', !allFilter.authors.size, () => (allFilter.authors.clear(), saveAllFilter(), renderAll())));
+  fAuthor.replaceChildren(chip('전체', !allFilter.authors.size, () => (snapAll(), allFilter.authors.clear(), saveAllFilter(), renderAll())));
   for (const a of authors) fAuthor.append(chip(esc(a), allFilter.authors.has(a), () => toggleIn(allFilter.authors, a)));
   $('#fOrder').replaceChildren(
-    chip('최신순', allFilter.order === 'new', () => ((allFilter.order = 'new'), saveAllFilter(), renderAll())),
-    chip('오래된순', allFilter.order === 'old', () => ((allFilter.order = 'old'), saveAllFilter(), renderAll())),
+    chip('최신순', allFilter.order === 'new', () => (snapAll(), (allFilter.order = 'new'), saveAllFilter(), renderAll())),
+    chip('오래된순', allFilter.order === 'old', () => (snapAll(), (allFilter.order = 'old'), saveAllFilter(), renderAll())),
   );
   // --- 거르기 ---
   const q = $('#allSearch').value.trim().toLowerCase();
@@ -1496,7 +1575,7 @@ function renderAll() {
   if (!dates.length) list.innerHTML = '<div class="empty">조건에 맞는 기록이 없어요</div>';
 }
 
-$('#goImport').addEventListener('click', () => showView('import'));
+$('#goImport').addEventListener('click', () => showView('import', { sub: true }));
 
 // ---------------- 폰 알림 (안드로이드) ----------------
 // 앱이 꺼져 있어도 15분마다 새 글을 확인해서 알림을 띄운다 (MainActivity / NewEntryWorker)

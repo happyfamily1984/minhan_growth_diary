@@ -633,3 +633,10 @@ textarea.grow, .pick .pick-text.grow, .field textarea.grow { resize: none !impor
 .all-photo img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; flex: none; }
 .all-photo span { font-size: 0.85rem; color: var(--ink); word-break: keep-all; overflow-wrap: anywhere; }
 mark { background: #ffe58a; border-radius: 3px; padding: 0 1px; }
+
+/* ---------- 종료할까요? / 사주 칸 ---------- */
+.exit-dialog { width: min(340px, calc(100vw - 48px)); text-align: center; }
+.exit-q { font-family: var(--font-title); font-size: 1.25rem; margin: 8px 0 18px; line-height: 1.5; }
+.saju-block { background: var(--cream); border-radius: 16px; padding: 10px 12px; margin: 10px 0; }
+.saju-block h5 { margin: 0 0 6px; font-family: var(--font-title); font-weight: 400; font-size: 1.02rem; color: #5b3fc4; }
+.saju-block p { margin: 0 0 6px; }

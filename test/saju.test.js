@@ -23,7 +23,8 @@ test('시주: 30분 늦춘 시 기준', () => {
 
 test('풀이가 만들어진다', () => {
   const r = readSaju({ name: '민한이', date: '2016-02-22', time: '11:55' }, '2026-11-13');
-  for (const k of ['life', 'year', 'month', 'day']) assert.ok(r.sections[k].text.length >= 1);
+  for (const k of ['year', 'month', 'day']) assert.ok(r.sections[k].text.length >= 1);
+  assert.ok(r.sections.life.blocks.length >= 5);
   console.log(ko(r.pillars), '|', r.sections.life.head, '|', r.sections.year.head, '|', r.sections.day.head);
   console.log(ko(fourPillars('1983-06-07', '08:30')), '/', ko(fourPillars('1980-09-29', '18:03')));
 });
