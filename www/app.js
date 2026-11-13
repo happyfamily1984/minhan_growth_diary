@@ -4,7 +4,7 @@ import { store as localStore } from './local-store.js';
 import { shrinkPhoto, photoTakenDate, decodeImage } from './photo.js';
 import { parseText, linesToBubbles, parseDateLine } from './parse.js';
 import { binarize } from './ocr-prep.js';
-import { bubblesFromOcr, findBubbles, datePillCandidates, pillCanvas } from './bubbles.js';
+import { bubblesFromOcr, findBubbles, datePillCandidates, pillCanvas, gapRegions } from './bubbles.js';
 import { kv } from './kv.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -642,7 +642,7 @@ $('#fallbackDate').addEventListener('change', () => {
 $('#parseBtn').addEventListener('click', () => {
   const items = parseText(pasteBox.value, todaySeoul());
   if (!items.length) return toast('붙여넣은 글이 없어요');
-  renderPicker(items.map((i) => ({ ...i, checked: true })), 'paste');
+  renderPicker(mergeSameDate(items.map((i) => ({ ...i, checked: true }))), 'paste');
 });
 
 pasteBox.addEventListener('input', () => {
@@ -787,7 +787,7 @@ async function ocrImages(files) {
       let found = null;
       if (rects.length) {
         status.textContent = `말풍선 ${rects.length}개 읽는 중… (${i + 1}/${files.length})`;
-        const dates = await readDatePills(worker, lines, original);
+        const dates = await readDatePills(worker, lines, original, rects);
         const bubbleLines = [];
         for (const [k, r] of rects.entries()) {
           bar.style.width = `${Math.round(((k + 1) / rects.length) * 100)}%`;
@@ -805,7 +805,7 @@ async function ocrImages(files) {
         all.push({ ...rest, shotDate, checked: false, crops: rect ? [cropBubble(color, rect)] : [] });
       }
     }
-    renderPicker(all, 'ocr', previews, { images });
+    renderPicker(mergeSameDate(all), 'ocr', previews, { images });
   } catch (err) {
     // 원인을 알 수 있게 사진 정보도 작게 보여 준다
     const info = files.map((f) => `${f.type || '종류 없음'} · ${Math.round((f.size || 0) / 1024)}KB`).join(', ');
@@ -872,10 +872,14 @@ function fixEnglish(line) {
 }
 
 /** 가운데 색 바탕 글씨(날짜 표시)만 잘라 다시 읽어 날짜를 찾는다 */
-async function readDatePills(worker, lines, original) {
+async function readDatePills(worker, lines, original, rects) {
   const out = [];
-  for (const box of datePillCandidates(lines, original)) {
-    const c = pillCanvas(original, box);
+  const boxes = [
+    ...datePillCandidates(lines, original).map((b) => ({ b, pad: true })),
+    ...gapRegions(rects, original).map((b) => ({ b, pad: false })),
+  ];
+  for (const { b: box, pad } of boxes) {
+    const c = pillCanvas(original, box, pad);
     await worker.setParameters({ tessedit_pageseg_mode: '7' });
     const { data } = await worker.recognize(c);
     await worker.setParameters({ tessedit_pageseg_mode: '4' });
@@ -883,7 +887,7 @@ async function readDatePills(worker, lines, original) {
     // '2월 15일 입' 처럼 옆 글자가 붙어도 날짜 부분만 찾는다
     const m = text.match(/(?:(\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
     const d = m ? parseDateLine(m[0], todaySeoul()) : parseDateLine(text, todaySeoul());
-    if (d) out.push({ y: box.y0, date: d });
+    if (d && !out.some((x) => Math.abs(x.y - box.y0) < 40 && x.date === d)) out.push({ y: box.y0, date: d });
   }
   return out;
 }
@@ -905,6 +909,23 @@ function getBilingualWorker() {
     throw e;
   });
   return bilingualP;
+}
+
+/** 같은 날짜인 후보들은 처음부터 하나로 합친다 (날짜를 못 찾은 것끼리도 하나로) */
+function mergeSameDate(items) {
+  const out = [];
+  for (const it of items) {
+    const key = it.date || 'none';
+    const same = out.find((o) => (o.date || 'none') === key);
+    if (!same) {
+      out.push({ ...it, crops: [...(it.crops || [])] });
+      continue;
+    }
+    same.text = [same.text, it.text].filter((t) => String(t || '').trim()).join('\n\n');
+    same.crops.push(...(it.crops || []));
+    same.checked = same.checked || it.checked;
+  }
+  return out;
 }
 
 /** 말풍선 부분만 잘라 작은 그림으로 (후보 옆에 보여 주고 임시저장에도 넣음) */

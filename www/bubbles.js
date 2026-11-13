@@ -46,6 +46,7 @@ export function findBubbles(img) {
     }
   }
   const out = [];
+  const excluded = [];
   for (const [y0, y1] of bands) {
     const ls = [];
     const rs = [];
@@ -61,7 +62,9 @@ export function findBubbles(img) {
     const tooTop = y0 < H * 0.075;
     const tooBottom = y0 > H * 0.9 && y1 - y0 < H * 0.06;
     if (!tooTop && !tooBottom) out.push({ x0, y0, x1, y1 });
+    else excluded.push({ x0, y0, x1, y1 });
   }
+  out.excluded = excluded; // 제목줄·잘린 말풍선 등 (날짜 표시 찾을 때 피함)
   return out;
 }
 
@@ -274,12 +277,14 @@ export function datePillCandidates(lines, img) {
 }
 
 /** 날짜 표시 부분을 잘라 '흰 바탕 검은 글씨'로 바꾼 그림 (다시 읽기용) */
-export function pillCanvas(img, box) {
+export function pillCanvas(img, box, pad = true) {
   const h = box.y1 - box.y0;
-  const x0 = Math.max(0, Math.round(box.x0 - h * 0.3));
-  const x1 = Math.min(img.width - 1, Math.round(box.x1 + h * 0.3));
-  const y0 = Math.max(0, Math.round(box.y0 - h * 0.35));
-  const y1 = Math.min(img.height - 1, Math.round(box.y1 + h * 0.35));
+  const px = pad ? h * 0.3 : 0;
+  const py = pad ? h * 0.35 : 0;
+  const x0 = Math.max(0, Math.round(box.x0 - px));
+  const x1 = Math.min(img.width - 1, Math.round(box.x1 + px));
+  const y0 = Math.max(0, Math.round(box.y0 - py));
+  const y1 = Math.min(img.height - 1, Math.round(box.y1 + py));
   const w = x1 - x0 + 1;
   const hh = y1 - y0 + 1;
   const scale = Math.max(1, 64 / hh);
@@ -313,3 +318,20 @@ export function pillCanvas(img, box) {
 
 /** 줄들의 평균 확신도 (0~100) */
 export const avgConfidence = (lines) => (lines.length ? lines.reduce((s, l) => s + (l.confidence ?? 0), 0) / lines.length : 0);
+
+/**
+ * 말풍선 사이 빈 틈 중 날짜 표시가 들어갈 만큼 넓은 곳 (가운데 부분만).
+ * 화면 전체 읽기에서 날짜 표시가 빠지는 경우가 있어서 틈마다 따로 읽는다.
+ */
+export function gapRegions(rects, img) {
+  const W = img.width;
+  const H = img.height;
+  const all = [...rects, ...(rects.excluded || [])].sort((a, b) => a.y0 - b.y0);
+  const out = [];
+  let prev = H * 0.075; // 위쪽 제목줄 아래부터
+  for (const r of [...all, { y0: H * 0.93 }]) {
+    if (r.y0 - prev >= H * 0.018) out.push({ x0: W * 0.25, x1: W * 0.75, y0: prev + 2, y1: r.y0 - 2 });
+    prev = Math.max(prev, r.y1 ?? prev);
+  }
+  return out;
+}
