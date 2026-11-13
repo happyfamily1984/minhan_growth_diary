@@ -231,22 +231,60 @@ function openEditor(date, entry = null) {
   form.date.value = entry?.date || date || todaySeoul();
   form.date.min = BIRTH_DATE;
   form.kind.value = entry?.kind || 'say';
-  setKind(form.kind.value);
   form.text.value = entry?.text || '';
   form.note.value = entry?.note || '';
+  // 같은 글을 쓰다 만 게 있으면 이어서
+  const d = draft.get('write');
+  if (d && (d.editingId || null) === (entry?.id || null) && (d.text || d.note)) {
+    form.date.value = d.date || form.date.value;
+    form.kind.value = d.kind || form.kind.value;
+    form.text.value = d.text || '';
+    form.note.value = d.note || '';
+    setTimeout(() => toast('쓰던 내용을 이어서 보여 드려요 📝'), 300);
+  }
+  setKind(form.kind.value);
+  saveWriteDraft(true);
   $('#editorDelete').hidden = !entry;
   updateEditorDay();
   openDialog(editor);
   if (!entry) form.text.focus();
 }
 const closeEditor = () => closeDialog(editor);
+/** 쓰기창 내용을 계속 저장. open: 쓰기창이 열려 있는지 (앱이 새로 열리면 다시 열어 줌) */
+function saveWriteDraft(open = editor.open) {
+  draft.set('write', {
+    editingId: editing?.id || null,
+    date: form.date.value,
+    kind: form.kind.value,
+    text: form.text.value,
+    note: form.note.value,
+    open,
+  });
+}
+form.addEventListener('input', () => saveWriteDraft());
+form.addEventListener('change', () => saveWriteDraft());
+editor.addEventListener('close', () => {
+  const d = draft.get('write');
+  if (d) draft.set('write', { ...d, open: false });
+});
+/** 앱이 새로 열렸을 때 쓰다 만 쓰기창이 있으면 다시 열기 */
+function restoreWrite() {
+  const d = draft.get('write');
+  if (!d?.open || !(d.text || d.note)) return;
+  const entry = d.editingId ? store.all().find((e) => e.id === d.editingId) : null;
+  if (d.editingId && !entry) return draft.clear('write');
+  openEditor(d.date, entry);
+}
 function updateEditorDay() {
   const d = form.date.value;
   $('#editorDay').textContent = d && d >= BIRTH_DATE ? `${dayText(d)} · ${ageText(d)}` : '';
 }
 form.date.addEventListener('input', updateEditorDay);
 for (const r of $$('input[name=kind]', form)) r.addEventListener('change', () => setKind(form.kind.value));
-$('#editorCancel').addEventListener('click', closeEditor);
+$('#editorCancel').addEventListener('click', () => {
+  draft.clear('write');
+  closeEditor();
+});
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   // 시간은 따로 고르지 않고, 처음 저장한 순간의 시간을 쓴다 (고칠 때는 그대로)
@@ -255,6 +293,7 @@ form.addEventListener('submit', async (e) => {
   try {
     if (editing) await store.update(editing.id, body);
     else await store.put([body]);
+    draft.clear('write');
     closeEditor();
     toast('저장했어요 💛');
     if (currentView === 'calendar') selectDate(body.date);
@@ -266,6 +305,7 @@ form.addEventListener('submit', async (e) => {
 $('#editorDelete').addEventListener('click', async () => {
   if (!editing || !confirm('이 기록을 지울까요?')) return;
   await store.remove(editing.id);
+  draft.clear('write');
   closeEditor();
   toast('지웠어요');
   refresh();
@@ -580,6 +620,7 @@ $('#fallbackDate').min = BIRTH_DATE;
 // '날짜가 안 보이면' 날짜를 바꾸면, 날짜를 못 찾은 기록 후보들도 같이 바뀐다
 let fallbackTouched = false;
 let pickerRows = [];
+let pickerSave = null; // 지금 보이는 후보 목록의 임시저장 함수
 $('#fallbackDate').addEventListener('change', () => {
   const d = $('#fallbackDate').value;
   if (!d) return;
@@ -591,12 +632,18 @@ $('#fallbackDate').addEventListener('change', () => {
     n++;
   }
   if (n) toast(`${n}개를 ${prettyDate(d)}로 바꿨어요`);
+  pickerSave?.();
 });
 
 $('#parseBtn').addEventListener('click', () => {
   const items = parseText(pasteBox.value, todaySeoul());
   if (!items.length) return toast('붙여넣은 글이 없어요');
   renderPicker(items.map((i) => ({ ...i, checked: true })), 'paste');
+});
+
+pasteBox.addEventListener('input', () => {
+  if (pasteBox.value.trim()) draft.set('paste', pasteBox.value);
+  else draft.clear('paste');
 });
 
 // 캡쳐 사진을 바로 붙여넣기 해도 된다
@@ -770,7 +817,28 @@ async function prepareImage(file) {
 }
 
 /** 인식 결과를 확인하고 골라서 저장하는 목록 */
-function renderPicker(items, source, previews = []) {
+// ---------------- 임시저장 (앱이 새로 열려도 쓰던 것 이어서) ----------------
+const draft = {
+  get(key) {
+    try {
+      return JSON.parse(localStorage.getItem('minhan-draft-' + key) || 'null');
+    } catch {
+      return null;
+    }
+  },
+  set(key, v) {
+    try {
+      localStorage.setItem('minhan-draft-' + key, JSON.stringify(v));
+    } catch {}
+  },
+  clear(key) {
+    try {
+      localStorage.removeItem('minhan-draft-' + key);
+    } catch {}
+  },
+};
+
+function renderPicker(items, source, previews = [], { restored = false } = {}) {
   const fallback = () => $('#fallbackDate').value || todaySeoul();
   importResult.replaceChildren();
   if (!items.length) {
@@ -794,6 +862,7 @@ function renderPicker(items, source, previews = []) {
       <input type="date" class="all-date" min="${BIRTH_DATE}" aria-label="모두 이 날짜로">
       <button class="btn small" data-alldate>날짜로</button>
     </div>
+    ${restored ? '<div class="draft-note">📝 하던 것을 이어서 보여 드려요 <button type="button" class="btn small" data-drop>지우기</button></div>' : ''}
     <p class="muted small">민한이가 한 말·한 일만 체크하세요. 글자와 날짜는 눌러서 고칠 수 있어요.</p>
     <div class="pick-list"></div>
     <div class="sticky-actions">
@@ -812,8 +881,8 @@ function renderPicker(items, source, previews = []) {
       <div class="pick-body">
         <textarea class="pick-text" rows="1">${esc(it.text)}</textarea>
         <div class="pick-meta">
-          <input type="date" class="pick-date" min="${BIRTH_DATE}" value="${it.date || (!fallbackTouched && it.shotDate) || fallback()}">
-          ${it.date ? '' : '<span class="warn">날짜 못 찾음</span>'}
+          <input type="date" class="pick-date" min="${BIRTH_DATE}" value="${it.dateValue || it.date || (!fallbackTouched && it.shotDate) || fallback()}">
+          ${it.date || it.auto === false ? '' : '<span class="warn">날짜 못 찾음</span>'}
           <button type="button" class="kind-btn"></button>
         </div>
       </div>`;
@@ -823,15 +892,18 @@ function renderPicker(items, source, previews = []) {
       r.kindBtn.textContent = `${KIND[k].icon} ${KIND[k].label}`;
     };
     r.setKind = setRowKind;
-    setRowKind('say');
-    r.kindBtn.addEventListener('click', () => setRowKind(r.kind === 'say' ? 'did' : 'say'));
+    setRowKind(it.kind === 'did' ? 'did' : 'say');
+    r.kindBtn.addEventListener('click', () => {
+      setRowKind(r.kind === 'say' ? 'did' : 'say');
+      saveDraft();
+    });
     const fit = () => {
       r.ta.style.height = 'auto';
       r.ta.style.height = r.ta.scrollHeight + 'px';
     };
     requestAnimationFrame(fit);
     r.ta.addEventListener('input', fit);
-    r.auto = !it.date; // 글에서 날짜를 못 찾은 것 → 위의 날짜를 따라감
+    r.auto = it.auto ?? !it.date; // 글에서 날짜를 못 찾은 것 → 위의 날짜를 따라감
     r.date.addEventListener('change', () => {
       $('.warn', row)?.remove();
       r.auto = false; // 직접 고친 날짜는 그대로 둔다
@@ -841,6 +913,37 @@ function renderPicker(items, source, previews = []) {
   });
 
   pickerRows = rows;
+  let saveTimer;
+  function saveDraft() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      if (!rows.length) return draft.clear('import');
+      draft.set('import', {
+        source,
+        savedAt: new Date().toISOString(),
+        items: rows.map((r) => ({
+          text: r.ta.value,
+          date: r.it.date || null,
+          dateValue: r.date.value,
+          auto: r.auto,
+          kind: r.kind,
+          checked: r.cb.checked,
+          side: r.it.side || '',
+          time: r.it.time || '',
+        })),
+      });
+    }, 300);
+  }
+  listEl.addEventListener('input', saveDraft);
+  listEl.addEventListener('change', saveDraft);
+  pickerSave = saveDraft;
+  $('[data-drop]', card)?.addEventListener('click', () => {
+    if (!confirm('하던 목록을 지울까요?')) return;
+    rows.length = 0;
+    draft.clear('import');
+    importResult.replaceChildren();
+  });
+  saveDraft();
   const update = () => {
     const n = rows.filter((r) => r.cb.checked).length;
     $('.pick-count', card).textContent = `${n}개 선택`;
@@ -853,12 +956,18 @@ function renderPicker(items, source, previews = []) {
       const k = b.dataset.sel;
       for (const r of rows) r.cb.checked = k === 'all' ? true : k === 'none' ? false : r.it.side === k;
       update();
+      saveDraft();
     });
   }
-  for (const b of $$('[data-allkind]', card)) b.addEventListener('click', () => rows.forEach((r) => r.cb.checked && r.setKind(b.dataset.allkind)));
+  for (const b of $$('[data-allkind]', card))
+    b.addEventListener('click', () => {
+      rows.forEach((r) => r.cb.checked && r.setKind(b.dataset.allkind));
+      saveDraft();
+    });
   $('[data-alldate]', card).addEventListener('click', () => {
     const d = $('.all-date', card).value;
-    for (const r of rows) if (r.cb.checked) (r.date.value = d), $('.warn', r.row)?.remove();
+    for (const r of rows) if (r.cb.checked) (r.date.value = d), (r.auto = false), $('.warn', r.row)?.remove();
+    saveDraft();
   });
 
   $('.pick-save', card).addEventListener('click', async () => {
@@ -873,13 +982,17 @@ function renderPicker(items, source, previews = []) {
       for (const r of sel) r.row.remove();
       rows.splice(0, rows.length, ...rows.filter((r) => !sel.includes(r)));
       update();
+      saveDraft();
       if (!rows.length) {
         importResult.innerHTML = `<div class="card empty">다 넣었어요! <button class="btn small" id="goCal">달력에서 보기</button></div>`;
         $('#goCal').addEventListener('click', () => {
           selectDate(dates.at(-1));
           showView('calendar');
         });
-        if (source === 'paste') pasteBox.value = '';
+        if (source === 'paste') {
+          pasteBox.value = '';
+          draft.clear('paste');
+        }
       }
     } catch (err) {
       toast(err.message);
@@ -906,6 +1019,18 @@ async function takeShared() {
 }
 window.onAndroidShare = takeShared;
 document.addEventListener('visibilitychange', () => !document.hidden && takeShared());
+
+/** 앱이 새로 열렸을 때: 하던 가져오기 목록, 붙여넣기 글, 쓰기창 되살리기 */
+function restoreDrafts() {
+  const paste = draft.get('paste');
+  if (paste && !pasteBox.value) pasteBox.value = paste;
+  const imp = draft.get('import');
+  if (imp?.items?.length) {
+    renderPicker(imp.items, imp.source || 'ocr', [], { restored: true });
+    if (currentView === 'home') toast('하던 가져오기 목록이 있어요 (가져오기 탭)');
+  }
+  restoreWrite();
+}
 
 // ---------------- 폰 알림 (안드로이드) ----------------
 // 앱이 꺼져 있어도 15분마다 새 글을 확인해서 알림을 띄운다 (MainActivity / NewEntryWorker)
@@ -1089,6 +1214,7 @@ auth$.watch((loggedIn) => {
     showView(location.hash.slice(1) || 'home', { push: false });
     takeShared();
     takeOpen();
+    restoreDrafts();
     migrateLocal();
     if (!readRole()) setTimeout(askRole, 300);
   } else refresh();

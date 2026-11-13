@@ -529,3 +529,10 @@ body::before {
 .new-badge { position: absolute; top: -6px; right: -4px; z-index: 2; }
 .entry.flash { animation: flash 0.8s ease-in-out 3; }
 @keyframes flash { 50% { box-shadow: 0 0 0 4px var(--orange-2), var(--shadow); } }
+
+/* ---------- 임시저장 안내 ---------- */
+.draft-note {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--yellow-soft); border: 1.5px dashed #f2d690; border-radius: 14px; padding: 8px 12px; margin-bottom: 8px;
+  font-family: var(--font-title);
+}
