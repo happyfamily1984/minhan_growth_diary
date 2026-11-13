@@ -670,3 +670,12 @@ mark { background: #ffe58a; border-radius: 3px; padding: 0 1px; }
 
 .photo-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .photo-btns .btn { width: 100%; padding: 14px 6px; font-size: min(1.05rem, 4.2vw); }
+
+/* ---------- 가족 추가 ---------- */
+.add-person { align-self: flex-start; border-style: dashed; color: #7c5ce0; }
+.parent-name.editable { cursor: pointer; text-decoration: underline dotted; }
+.time-row { display: flex; align-items: center; gap: 10px; }
+.time-row input[type=time] { flex: 1; }
+.time-row .unknown { display: flex; align-items: center; gap: 4px; font-weight: 400; white-space: nowrap; }
+.pillar.unknown { opacity: 0.5; }
+#personForm input[type=text], #personForm input[type=date], #personForm input[type=time] { border: 1.5px solid var(--line); background: var(--cream); border-radius: 12px; padding: 10px 12px; font-size: 1rem; }

@@ -72,6 +72,7 @@
             <button class="chip" data-saju="child" data-tab="day">오늘의운세</button>
           </div>
           <div class="parents" id="parents"></div>
+          <button class="btn small add-person" id="addPerson">➕ 가족 추가</button>
         </div>
 
         <div id="freshWrap" hidden>
@@ -271,6 +272,25 @@
     </div>
     <div class="saju-body" id="sajuBody"></div>
     <p class="muted small saju-note">사주는 태어난 날과 시간으로 계산한 만세력과 정해 둔 풀이로 보여 드려요. 재미로 봐 주세요 😊</p>
+  </dialog>
+
+  <!-- 가족 추가·고치기 -->
+  <dialog id="personDialog">
+    <form id="personForm">
+      <h3 id="personTitle">➕ 가족 추가</h3>
+      <label class="field"><span class="field-label">이름</span><input type="text" name="name" maxlength="12" placeholder="예: 할머니, 이모" required /></label>
+      <label class="field"><span class="field-label">생년월일 (양력)</span><input type="date" name="date" min="1900-01-01" required /></label>
+      <div class="field">
+        <span class="field-label">태어난 시간</span>
+        <div class="time-row"><input type="time" name="time" /><label class="unknown"><input type="checkbox" name="unknown" /> 모름</label></div>
+      </div>
+      <div class="editor-actions">
+        <button type="button" class="btn danger" id="personDelete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- 종료할까요? -->

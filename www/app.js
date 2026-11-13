@@ -1551,17 +1551,27 @@ function yearsOld(from, to) {
   const [ty, tm, td] = to.split('-').map(Number);
   return ty - fy - (tm < fm || (tm === fm && td < fd) ? 1 : 0);
 }
+/** 사주를 볼 수 있는 모든 사람: 민한이·아빠·엄마 + 추가한 가족 */
+function personOf(key) {
+  if (FAMILY[key]) return FAMILY[key];
+  const p = store.people().find((x) => 'p:' + x.id === key);
+  return p ? { ...p, label: p.name, icon: '🙂', key } : null;
+}
+const allPersonKeys = () => ['child', 'dad', 'mom', ...store.people().map((p) => 'p:' + p.id)];
 const koTime = (t) => {
+  if (!t) return '(시간 모름)';
   const [h, m] = t.split(':').map(Number);
   return `${h < 12 ? '오전' : '오후'} ${h % 12 || 12}시${m ? ` ${m}분` : ''}`;
 };
 function renderParents(today) {
-  $('#parents').innerHTML = ['dad', 'mom']
+  $('#parents').innerHTML = allPersonKeys()
+    .filter((k) => k !== 'child')
     .map((k) => {
-      const f = FAMILY[k];
+      const f = personOf(k);
       const [y, m, d] = f.date.split('-').map(Number);
+      const added = k.startsWith('p:');
       return `<div class="parent-row">
-        <span class="parent-name">${f.icon} ${f.label}</span>
+        <span class="parent-name${added ? ' editable' : ''}" ${added ? `data-edit-person="${k.slice(2)}"` : ''}>${f.icon} ${esc(f.label)}${added ? ' ✏️' : ''}</span>
         <span class="parent-info">${y}.${m}.${d} · 탄생 ${daysSince(f.date, today).toLocaleString()}일째 · 만 ${yearsOld(f.date, today)}살</span>
         <button class="chip small-chip" data-saju="${k}">사주보기</button>
       </div>`;
@@ -1569,23 +1579,76 @@ function renderParents(today) {
     .join('');
 }
 
+// ---------------- 가족 추가·고치기 ----------------
+const personDialog = $('#personDialog');
+const pf = $('#personForm');
+let editingPerson = null;
+function openPerson(p = null) {
+  editingPerson = p;
+  pf.reset();
+  $('#personTitle').textContent = p ? `✏️ ${p.name} 고치기` : '➕ 가족 추가';
+  pf.name.value = p?.name || '';
+  pf.date.value = p?.date || '';
+  pf.date.max = todaySeoul();
+  pf.time.value = p?.time || '';
+  pf.unknown.checked = !!p && !p.time;
+  pf.time.disabled = pf.unknown.checked;
+  $('#personDelete').hidden = !p;
+  openDialog(personDialog);
+  if (!p) pf.name.focus();
+}
+pf.unknown.addEventListener('change', () => {
+  pf.time.disabled = pf.unknown.checked;
+  if (pf.unknown.checked) pf.time.value = '';
+});
+pf.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!pf.unknown.checked && !pf.time.value) return toast('태어난 시간을 고르거나 "모름"을 체크해 주세요');
+  try {
+    const saved = await store.savePerson({ ...(editingPerson || {}), name: pf.name.value, date: pf.date.value, time: pf.unknown.checked ? '' : pf.time.value });
+    closeDialog(personDialog);
+    toast(`${saved.name} 사주를 볼 수 있어요 🔮`);
+    refresh();
+  } catch (err) {
+    toast(err.message);
+  }
+});
+$('#personDelete').addEventListener('click', async () => {
+  if (!editingPerson || !confirm(`${editingPerson.name}을(를) 지울까요?`)) return;
+  await store.removePerson(editingPerson.id);
+  closeDialog(personDialog);
+  refresh();
+});
+$('#addPerson').addEventListener('click', () => openPerson());
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-edit-person]');
+  if (t) openPerson(store.people().find((x) => x.id === t.dataset.editPerson));
+});
+
 // ---------------- 사주보기 ----------------
 const sajuDialog = $('#sajuDialog');
 let sajuNow = null;
 const EL_ICON = ['🌳', '🔥', '⛰️', '🪙', '💧'];
 const EL_LABEL = ['목', '화', '토', '금', '수'];
 function openSaju(key, tab = 'life') {
-  const f = FAMILY[key];
+  const f = personOf(key);
+  if (!f) return;
   const now = new Date();
   const hhmm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
-  const others = { child: ['dad', 'mom'], dad: ['mom', 'child'], mom: ['dad', 'child'] }[key].map((k) => FAMILY[k]);
+  // 궁합: 나를 뺀 모든 가족 (민한이 → 아빠·엄마 → 추가한 가족 순)
+  const order = key === 'child' ? allPersonKeys() : key === 'dad' ? ['mom', 'child'] : key === 'mom' ? ['dad', 'child'] : ['child', 'dad', 'mom'];
+  const others = [...new Set([...order, ...allPersonKeys()])].filter((k) => k !== key).map(personOf).filter(Boolean);
   sajuNow = readSaju(f, todaySeoul(), hhmm, others);
   const [y, m, d] = f.date.split('-').map(Number);
   $('#sajuTitle').textContent = `🔮 ${f.label} 사주`;
   $('#sajuBirth').textContent = `${y}년 ${m}월 ${d}일 ${koTime(f.time)} (양력)`;
   const cols = [['시', sajuNow.chart[0]], ['일', sajuNow.chart[1]], ['월', sajuNow.chart[2]], ['년', sajuNow.chart[3]]];
   $('#sajuChart').innerHTML = cols
-    .map(([lab, p]) => `<div class="pillar${lab === '일' ? ' me' : ''}"><small>${lab}</small><b>${p.hanja[0]}</b><b>${p.hanja[1]}</b><span>${p.ko}</span></div>`)
+    .map(([lab, p]) =>
+      p
+        ? `<div class="pillar${lab === '일' ? ' me' : ''}"><small>${lab}</small><b>${p.hanja[0]}</b><b>${p.hanja[1]}</b><span>${p.ko}</span></div>`
+        : `<div class="pillar unknown"><small>${lab}</small><b>?</b><b>?</b><span>모름</span></div>`,
+    )
     .join('');
   $('#sajuElements').innerHTML = sajuNow.counts.map((c, i) => `<span class="el el-${i}">${EL_ICON[i]} ${EL_LABEL[i]} ${c}</span>`).join('');
   showSajuTab(tab);

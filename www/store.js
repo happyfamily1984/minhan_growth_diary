@@ -33,6 +33,7 @@ if (new URLSearchParams(location.search).has('emu')) {
 const base = `families/${FAMILY_ID}`;
 const entriesCol = collection(fs, `${base}/entries`);
 const photosCol = collection(fs, `${base}/photos`);
+const peopleCol = collection(fs, `${base}/people`); // 사주보기에 추가한 가족
 const photoDataDoc = (id) => doc(fs, `${base}/photoData/${id}`);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -42,6 +43,7 @@ const sorted = (list) => [...list].sort((a, b) => sortKey(a).localeCompare(sortK
 
 let entries = new Map();
 let photos = new Map();
+let people = new Map();
 let ready = { entries: false, photos: false };
 const listeners = new Set();
 let syncState = { offline: false, pending: false };
@@ -68,6 +70,10 @@ function startListening(onReady) {
       done();
       emit();
     }, (err) => console.error('photos', err)),
+    onSnapshot(peopleCol, (snap) => {
+      people = new Map(snap.docs.map((d) => [d.id, d.data()]));
+      emit();
+    }, (err) => console.error('people', err)),
   );
 }
 
@@ -168,6 +174,31 @@ export const store = {
   async remove(id) {
     entries.delete(id);
     write(deleteDoc(doc(entriesCol, id)));
+    emit();
+  },
+
+  // ---- 사주보기에 추가한 가족 ----
+  people: () => [...people.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+  async savePerson(p) {
+    if (!String(p.name || '').trim()) throw new Error('이름을 써 주세요');
+    if (!DATE_RE.test(p.date || '')) throw new Error('생년월일을 골라 주세요');
+    const now = new Date().toISOString();
+    const v = {
+      id: p.id || crypto.randomUUID(),
+      name: String(p.name).trim(),
+      date: p.date,
+      time: /^\d{2}:\d{2}$/.test(p.time || '') ? p.time : '',
+      createdAt: p.createdAt || now,
+      updatedAt: now,
+    };
+    people.set(v.id, v);
+    write(setDoc(doc(peopleCol, v.id), v));
+    emit();
+    return v;
+  },
+  async removePerson(id) {
+    people.delete(id);
+    write(deleteDoc(doc(peopleCol, id)));
     emit();
   },
 
