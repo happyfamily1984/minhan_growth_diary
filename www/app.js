@@ -27,6 +27,8 @@ const ageText = (ymd) => {
 };
 const nowTimeSeoul = () =>
   new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+const AUTHOR_ICON = { 아빠: '👨', 엄마: '👩' };
+const authorLabel = (name) => `${AUTHOR_ICON[name] || '🙂'} ${esc(name)}`;
 const dayText = (d) => (d >= BIRTH_DATE ? `탄생 ${dayNumber(d).toLocaleString()}일째` : '태어나기 전');
 
 function toast(msg) {
@@ -52,6 +54,7 @@ function entryCard(e, { showDate = false } = {}) {
       <span>${dayText(e.date)}</span>
       ${showDate ? `<span>${ageText(e.date)}</span>` : ''}
       ${e.time ? `<span>${esc(e.time)}</span>` : ''}
+      ${e.author ? `<span class="author">${authorLabel(e.author)}</span>` : ''}
       ${src ? `<span>${src}</span>` : ''}
     </div>`;
   el.addEventListener('click', () => openEditor(e.date, e));
@@ -447,7 +450,7 @@ async function openPhoto(p) {
   pform.date.value = p.date;
   pform.date.min = BIRTH_DATE;
   pform.caption.value = p.caption || '';
-  $('#photoViewDay').textContent = `${dayText(p.date)} · ${ageText(p.date)}`;
+  $('#photoViewDay').innerHTML = `${dayText(p.date)} · ${ageText(p.date)}${p.author ? ` · ${authorLabel(p.author)}` : ''}`;
   openDialog(photoView);
   try {
     const full = await store.photoData(p.id);
@@ -756,8 +759,79 @@ document.addEventListener('visibilitychange', () => !document.hidden && takeShar
 // ---------------- 시작 ----------------
 // ---------------- 로그인 (가족 비밀번호) ----------------
 let started = false;
+// ---- 기록자 (이 폰에 저장) ----
+const ROLE_KEY = 'minhan-author';
+const readRole = () => {
+  try {
+    return localStorage.getItem(ROLE_KEY) || '';
+  } catch {
+    return '';
+  }
+};
+function saveRole(name) {
+  try {
+    localStorage.setItem(ROLE_KEY, name);
+  } catch {}
+  store.setAuthor(name);
+  $('#roleName').textContent = name;
+}
+store.setAuthor(readRole());
+$('#roleName').textContent = readRole() || '안 정함';
+
+/** 아빠/엄마/기타(직접 쓰기) 고르는 칸. 고른 이름을 돌려준다 (없으면 '') */
+function setupRolePick(root) {
+  const other = $('.role-other', root);
+  let chosen = '';
+  const select = (role, otherName = '') => {
+    chosen = role;
+    $('#loginError').textContent = '';
+    for (const b of $$('.role-btn', root)) b.classList.toggle('on', b.dataset.role === role);
+    other.hidden = role !== '기타';
+    if (role === '기타') {
+      other.value = otherName;
+      other.focus();
+    }
+  };
+  for (const b of $$('.role-btn', root)) b.addEventListener('click', () => select(b.dataset.role));
+  return {
+    reset() {
+      const cur = readRole();
+      if (!cur) select('');
+      else if (cur in AUTHOR_ICON) select(cur);
+      else select('기타', cur);
+      other.hidden = chosen !== '기타';
+    },
+    value: () => (chosen === '기타' ? other.value.trim() : chosen),
+    chosen: () => chosen,
+  };
+}
+const loginRole = setupRolePick($('#loginForm'));
+loginRole.reset();
+const dialogRole = setupRolePick($('#roleForm'));
+const roleDialog = $('#roleDialog');
+function askRole() {
+  dialogRole.reset();
+  openDialog(roleDialog);
+}
+$('#roleForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = dialogRole.value();
+  if (!name) return toast(dialogRole.chosen() === '기타' ? '이름을 써 주세요' : '아빠, 엄마, 기타 중에 골라 주세요');
+  saveRole(name);
+  closeDialog(roleDialog);
+  toast(`${name}(으)로 기록할게요`);
+  refresh();
+});
+$('#roleBtn').addEventListener('click', askRole);
+
 $('#loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const name = loginRole.value();
+  if (!name) {
+    $('#loginError').textContent = loginRole.chosen() === '기타' ? '이름을 써 주세요' : '누가 쓰는지 골라 주세요';
+    return;
+  }
+  saveRole(name);
   const btn = e.target.querySelector('button');
   btn.disabled = true;
   $('#loginError').textContent = '';
@@ -813,6 +887,7 @@ auth$.watch((loggedIn) => {
     showView(location.hash.slice(1) || 'home', { push: false });
     takeShared();
     migrateLocal();
+    if (!readRole()) setTimeout(askRole, 300);
   } else refresh();
 });
 

@@ -36,6 +36,7 @@ const photosCol = collection(fs, `${base}/photos`);
 const photoDataDoc = (id) => doc(fs, `${base}/photoData/${id}`);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+let currentAuthor = ''; // 이 폰에서 쓰는 사람 (아빠/엄마/직접 쓴 이름)
 const sortKey = (e) => `${e.date} ${e.time || '99:99'} ${e.createdAt}`;
 const sorted = (list) => [...list].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 
@@ -86,6 +87,7 @@ function normalize(e) {
     text,
     note: String(e.note || '').trim(),
     source: e.source || 'manual',
+    author: e.author ?? currentAuthor, // 처음 쓴 사람 (고쳐도 그대로)
     createdAt: e.createdAt || now,
     updatedAt: now,
   };
@@ -117,6 +119,9 @@ export const auth$ = {
 };
 
 export const store = {
+  setAuthor(name) {
+    currentAuthor = String(name || '').trim();
+  },
   onChange(fn) {
     listeners.add(fn);
     return () => listeners.delete(fn);
@@ -178,7 +183,7 @@ export const store = {
     if (!DATE_RE.test(p.date || '')) throw new Error('날짜를 확인해 주세요');
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const meta = { id, date: p.date, caption: String(p.caption || '').trim(), thumb: p.thumb, width: p.width, height: p.height, createdAt: now, updatedAt: now };
+    const meta = { id, date: p.date, caption: String(p.caption || '').trim(), thumb: p.thumb, width: p.width, height: p.height, author: currentAuthor, createdAt: now, updatedAt: now };
     photos.set(id, meta);
     write(setDoc(photoDataDoc(id), { data: p.data }));
     write(setDoc(doc(photosCol, id), meta));

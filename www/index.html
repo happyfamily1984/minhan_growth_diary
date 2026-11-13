@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#cfe4fb" />
   <title>민한이 성장일기</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="icon" href="icon-192.png" type="image/png" />
+  <link rel="apple-touch-icon" href="icon.png" />
   <link rel="stylesheet" href="vendor/fonts/jua/index.css" />
   <link rel="stylesheet" href="vendor/fonts/gowun-dodum/index.css" />
   <link rel="stylesheet" href="style.css" />
@@ -17,6 +17,15 @@
   <div id="login" class="login" hidden>
     <img class="banner-img" src="img/banner-home.webp" alt="민한이 성장일기" />
     <form id="loginForm" class="card login-card">
+      <div class="role-pick">
+        <p class="role-q">누가 쓰나요?</p>
+        <div class="role-btns">
+          <button type="button" class="role-btn" data-role="아빠"><span>👨</span>아빠</button>
+          <button type="button" class="role-btn" data-role="엄마"><span>👩</span>엄마</button>
+          <button type="button" class="role-btn" data-role="기타"><span>🙂</span>기타</button>
+        </div>
+        <input type="text" class="role-other" maxlength="10" placeholder="이름을 써 주세요 (예: 할머니)" hidden />
+      </div>
       <p class="login-msg">가족 비밀번호를 입력해 주세요</p>
       <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••" maxlength="12" required />
       <button class="btn primary big" type="submit">들어가기</button>
@@ -138,6 +147,7 @@
           <div class="stack-btns">
             <button class="btn primary big" id="backupBtn">💾 글 기록 백업 파일</button>
             <label class="btn big file-btn">📂 백업에서 되살리기<input type="file" id="restoreFile" accept=".json,application/json" hidden /></label>
+            <button class="btn big" id="roleBtn">✍️ 기록자: <span id="roleName"></span> (바꾸기)</button>
             <button class="btn big" id="logoutBtn">🔒 이 폰에서 로그아웃</button>
           </div>
         </div>
@@ -181,6 +191,27 @@
       </div>
     </form>
     <img class="land" src="img/land.webp" alt="" />
+  </dialog>
+
+  <!-- 기록자 고르기 (이미 로그인된 폰 / 바꾸기) -->
+  <dialog id="roleDialog">
+    <form id="roleForm">
+      <h3>✍️ 이 폰에서는 누가 쓰나요?</h3>
+      <div class="role-pick">
+        <p class="role-q">누가 쓰나요?</p>
+        <div class="role-btns">
+          <button type="button" class="role-btn" data-role="아빠"><span>👨</span>아빠</button>
+          <button type="button" class="role-btn" data-role="엄마"><span>👩</span>엄마</button>
+          <button type="button" class="role-btn" data-role="기타"><span>🙂</span>기타</button>
+        </div>
+        <input type="text" class="role-other" maxlength="10" placeholder="이름을 써 주세요 (예: 할머니)" hidden />
+      </div>
+      <p class="muted small">고른 이름이 기록과 사진에 자동으로 붙어요.</p>
+      <div class="editor-actions">
+        <span class="spacer"></span>
+        <button type="submit" class="btn primary">확인</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- 년·월 고르기 -->
