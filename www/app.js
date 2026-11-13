@@ -565,9 +565,10 @@ function getWorker(onProgress) {
       workerPath: base + 'worker.min.js',
       corePath: base + 'core/',
       langPath: base + 'lang',
-      gzip: true,
+      gzip: false, // 사전은 압축을 푼 채로 앱에 들어 있음 (scripts/vendor.mjs)
       cacheMethod: 'none',
       logger: (m) => onProgress.current?.(m),
+      errorHandler: (e) => console.error('ocr', e),
     });
     await worker.setParameters({ tessedit_pageseg_mode: '4' }); // 크기가 다른 글줄이 한 줄씩 있는 화면
     return worker;
@@ -587,7 +588,16 @@ async function ocrImages(files) {
     if (m.status === 'recognizing text') bar.style.width = `${Math.round(m.progress * 100)}%`;
   };
   try {
-    const worker = await getWorker(progressRef);
+    // 준비가 1분 넘게 안 되면 멈춘 것으로 보고 알려 준다
+    const worker = await Promise.race([
+      getWorker(progressRef),
+      new Promise((_, reject) =>
+        setTimeout(() => {
+          workerP = null;
+          reject(new Error('글자 읽기 도구를 준비하지 못했어요. 앱을 껐다가 다시 열어 주세요.'));
+        }, 60000),
+      ),
+    ]);
     const all = [];
     const previews = [];
     for (const [i, file] of files.entries()) {
