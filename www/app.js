@@ -530,6 +530,21 @@ const pasteBox = $('#pasteBox');
 const importResult = $('#importResult');
 $('#fallbackDate').value = todaySeoul();
 $('#fallbackDate').min = BIRTH_DATE;
+// '날짜가 안 보이면' 날짜를 바꾸면, 날짜를 못 찾은 기록 후보들도 같이 바뀐다
+let fallbackTouched = false;
+let pickerRows = [];
+$('#fallbackDate').addEventListener('change', () => {
+  const d = $('#fallbackDate').value;
+  if (!d) return;
+  fallbackTouched = true;
+  let n = 0;
+  for (const r of pickerRows) {
+    if (!r.auto || !r.row.isConnected) continue;
+    r.date.value = d;
+    n++;
+  }
+  if (n) toast(`${n}개를 ${prettyDate(d)}로 바꿨어요`);
+});
 
 $('#parseBtn').addEventListener('click', () => {
   const items = parseText(pasteBox.value, todaySeoul());
@@ -670,7 +685,7 @@ async function ocrImages(files) {
       // 말풍선을 찾으면 말풍선 하나 = 기록 하나, 못 찾으면 예전 방식(줄 묶기)
       const found = bubblesFromOcr(lines, original, todaySeoul(), bin) || linesToBubbles(lines, width, todaySeoul());
       for (const b of found) {
-        all.push({ ...b, date: b.date || shotDate, checked: false });
+        all.push({ ...b, shotDate, checked: false });
       }
     }
     renderPicker(all, 'ocr', previews);
@@ -750,7 +765,7 @@ function renderPicker(items, source, previews = []) {
       <div class="pick-body">
         <textarea class="pick-text" rows="1">${esc(it.text)}</textarea>
         <div class="pick-meta">
-          <input type="date" class="pick-date" min="${BIRTH_DATE}" value="${it.date || fallback()}">
+          <input type="date" class="pick-date" min="${BIRTH_DATE}" value="${it.date || (!fallbackTouched && it.shotDate) || fallback()}">
           ${it.date ? '' : '<span class="warn">날짜 못 찾음</span>'}
           <button type="button" class="kind-btn"></button>
         </div>
@@ -769,11 +784,16 @@ function renderPicker(items, source, previews = []) {
     };
     requestAnimationFrame(fit);
     r.ta.addEventListener('input', fit);
-    r.date.addEventListener('change', () => $('.warn', row)?.remove());
+    r.auto = !it.date; // 글에서 날짜를 못 찾은 것 → 위의 날짜를 따라감
+    r.date.addEventListener('change', () => {
+      $('.warn', row)?.remove();
+      r.auto = false; // 직접 고친 날짜는 그대로 둔다
+    });
     listEl.append(row);
     return r;
   });
 
+  pickerRows = rows;
   const update = () => {
     const n = rows.filter((r) => r.cb.checked).length;
     $('.pick-count', card).textContent = `${n}개 선택`;
