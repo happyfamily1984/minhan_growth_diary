@@ -4,6 +4,7 @@ import { store as localStore } from './local-store.js';
 import { shrinkPhoto, photoTakenDate, decodeImage } from './photo.js';
 import { parseText, linesToBubbles } from './parse.js';
 import { binarize } from './ocr-prep.js';
+import { bubblesFromOcr } from './bubbles.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -661,11 +662,14 @@ async function ocrImages(files) {
       status.textContent = `글자 읽는 중… (${i + 1}/${files.length})`;
       bar.style.width = '0%';
       previews.push(URL.createObjectURL(file));
-      const { canvas, width } = await prepareImage(file);
-      const { data } = await worker.recognize(canvas);
+      const { canvas, width, original, bin } = await prepareImage(file);
+      const { data } = await worker.recognize(canvas, {}, { blocks: true });
+      const lines = ocrLines(data);
       // 캡쳐에 날짜가 없으면: 사진 만든 날짜 → 없으면 위에서 고른 날짜
       const shotDate = file.lastModified ? todaySeoul(new Date(file.lastModified)) : null;
-      for (const b of linesToBubbles(data.lines || [], width, todaySeoul())) {
+      // 말풍선을 찾으면 말풍선 하나 = 기록 하나, 못 찾으면 예전 방식(줄 묶기)
+      const found = bubblesFromOcr(lines, original, todaySeoul(), bin) || linesToBubbles(lines, width, todaySeoul());
+      for (const b of found) {
         all.push({ ...b, date: b.date || shotDate, checked: false });
       }
     }
@@ -675,6 +679,14 @@ async function ocrImages(files) {
     const info = files.map((f) => `${f.type || '종류 없음'} · ${Math.round((f.size || 0) / 1024)}KB`).join(', ');
     importResult.innerHTML = `<div class="card error">${esc(err.message || err)}<br><small class="muted">${esc(info)}</small></div>`;
   }
+}
+
+/** tesseract 결과에서 줄 목록(낱말 포함)을 꺼낸다 (버전마다 모양이 조금 달라서) */
+function ocrLines(data) {
+  if (data.lines?.length) return data.lines;
+  const out = [];
+  for (const b of data.blocks || []) for (const p of b.paragraphs || []) for (const l of p.lines || []) out.push(l);
+  return out;
 }
 
 /** 흑백으로 바꾸고, 작은 사진은 키워서 글자를 잘 읽게 한다 */
@@ -689,9 +701,10 @@ async function prepareImage(file) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const original = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height); // 색 보기용
   binarize(img);
   ctx.putImageData(img, 0, 0);
-  return { canvas, width: canvas.width };
+  return { canvas, width: canvas.width, original, bin: img };
 }
 
 /** 인식 결과를 확인하고 골라서 저장하는 목록 */
