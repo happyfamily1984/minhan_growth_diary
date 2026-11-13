@@ -41,6 +41,38 @@ function toast(msg) {
 }
 
 // ---------------- 기록 카드 ----------------
+// ---------------- 새 글 (빨간 N) ----------------
+// 다른 사람이 쓴 글 중 이 폰에서 아직 안 본 것. 한 번 화면에 나오면 '본 것'이 된다.
+const SEEN_KEY = 'minhan-seen';
+const seen = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(SEEN_KEY) || 'null');
+    if (v?.base) return { base: v.base, ids: new Set(v.ids || []) };
+  } catch {}
+  return { base: new Date().toISOString(), ids: new Set() }; // 처음 깐 폰은 지금부터
+})();
+function saveSeen() {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify({ base: seen.base, ids: [...seen.ids].slice(-3000) }));
+  } catch {}
+}
+saveSeen();
+const shownNew = new Set(); // 이번 화면에서 N 을 보여 준 글 (화면을 옮기면 비움)
+const myName = () => {
+  try {
+    return localStorage.getItem('minhan-author') || '';
+  } catch {
+    return '';
+  }
+};
+const isNewEntry = (e) => e.author && e.author !== myName() && e.createdAt > seen.base && !seen.ids.has(e.id);
+function newEntries() {
+  return store
+    .all()
+    .filter(isNewEntry)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 function entryCard(e, { showDate = false } = {}) {
   const el = document.createElement('div');
   const kind = KIND[e.kind] || KIND.say;
@@ -58,6 +90,13 @@ function entryCard(e, { showDate = false } = {}) {
       ${src ? `<span>${src}</span>` : ''}
     </div>
     ${e.author ? `<span class="author-mini">${esc(e.author)}</span>` : ''}`;
+  el.dataset.id = e.id;
+  if (isNewEntry(e)) {
+    shownNew.add(e.id);
+    seen.ids.add(e.id);
+    saveSeen();
+  }
+  if (shownNew.has(e.id)) el.insertAdjacentHTML('afterbegin', '<span class="new-badge" aria-label="새 글">N</span>');
   el.addEventListener('click', () => openEditor(e.date, e));
   return el;
 }
@@ -78,6 +117,7 @@ let currentView = 'home';
 function showView(name, { push = true } = {}) {
   if (!VIEWS.includes(name)) name = 'home';
   if (push && name !== currentView) history.pushState({ view: name }, '', name === 'home' ? '#' : `#${name}`);
+  if (name !== currentView) shownNew.clear();
   currentView = name;
   for (const s of $$('.view')) s.hidden = s.id !== `view-${name}`;
   for (const b of $$('.bottom [data-view]')) b.classList.toggle('active', b.dataset.view === name);
@@ -157,6 +197,13 @@ async function renderHome() {
     .map((x) => `<div class="dday ${x.label.includes('생일') ? 'pink' : ''}"><div class="lbl">${x.label.includes('생일') ? '🎁' : '🗓️'} ${x.label}까지</div><b>D-${x.left}</b></div>`)
     .join('');
   tickLive();
+  // 다른 사람이 새로 쓴 글 (오늘 날짜가 아닌 것도 여기서 한 번 보여 준다)
+  const fresh = [...newEntries(), ...store.all().filter((e) => shownNew.has(e.id) && !isNewEntry(e))]
+    .filter((e, i, a) => a.findIndex((x) => x.id === e.id) === i && e.date !== today)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  $('#freshWrap').hidden = !fresh.length;
+  if (fresh.length) renderList($('#freshList'), fresh, { showDate: true });
+  else $('#freshList').replaceChildren();
   renderList($('#todayList'), await store.list({ date: today }), {
     face: true,
     empty: '오늘은 아직 기록이 없어요.<br>민한이가 무슨 말을 하고, 무엇을 했나요?',
@@ -860,6 +907,53 @@ async function takeShared() {
 window.onAndroidShare = takeShared;
 document.addEventListener('visibilitychange', () => !document.hidden && takeShared());
 
+// ---------------- 폰 알림 (안드로이드) ----------------
+// 앱이 꺼져 있어도 15분마다 새 글을 확인해서 알림을 띄운다 (MainActivity / NewEntryWorker)
+const notify = window.AndroidNotify;
+function setupNotify() {
+  if (!notify) return;
+  try {
+    notify.configure(JSON.stringify({ refreshToken: auth$.refreshToken(), author: myName(), since: new Date().toISOString() }));
+  } catch (err) {
+    console.error('notify', err);
+  }
+}
+/** 이 폰에서 본 글까지는 알림을 보내지 않게 알려 준다 */
+function reportSeen() {
+  if (!notify || !store.ready()) return;
+  const last = store.all().reduce((m, e) => (e.createdAt > m ? e.createdAt : m), '');
+  if (last) notify.seenUpTo(last);
+}
+let pendingOpen = null;
+function takeOpen() {
+  try {
+    const id = notify?.takeOpen();
+    if (id) pendingOpen = id;
+  } catch {}
+  openPending();
+}
+/** 알림을 누르면: 그 글이 있는 날짜의 달력으로 가서 그 글을 반짝 보여 준다 */
+function openPending() {
+  if (!pendingOpen || !store.ready()) return;
+  const e = store.all().find((x) => x.id === pendingOpen);
+  if (!e) return;
+  pendingOpen = null;
+  selectDate(e.date);
+  showView('calendar');
+  setTimeout(() => {
+    const el = document.querySelector(`#dayList .entry[data-id="${CSS.escape(e.id)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 2400);
+  }, 350);
+}
+window.onAndroidOpen = takeOpen;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) reportSeen();
+  else takeOpen();
+});
+
 // ---------------- 시작 ----------------
 // ---------------- 로그인 (가족 비밀번호) ----------------
 let started = false;
@@ -878,6 +972,7 @@ function saveRole(name) {
   } catch {}
   store.setAuthor(name);
   $('#roleName').textContent = name;
+  if (typeof setupNotify === 'function') setupNotify();
 }
 store.setAuthor(readRole());
 $('#roleName').textContent = readRole() || '안 정함';
@@ -973,6 +1068,8 @@ function showSync() {
 let refreshTimer;
 store.onChange(() => {
   showSync();
+  openPending();
+  if (!document.hidden) reportSeen();
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(refresh, 50);
 });
@@ -986,10 +1083,12 @@ auth$.watch((loggedIn) => {
     setTimeout(() => $('#pin').focus(), 100);
     return;
   }
+  setupNotify();
   if (!started) {
     started = true;
     showView(location.hash.slice(1) || 'home', { push: false });
     takeShared();
+    takeOpen();
     migrateLocal();
     if (!readRole()) setTimeout(askRole, 300);
   } else refresh();

@@ -116,6 +116,8 @@ export const auth$ = {
     }
   },
   logout: () => signOut(auth),
+  /** 폰 알림(15분마다 새 글 확인)이 로그인할 때 쓰는 토큰 */
+  refreshToken: () => auth.currentUser?.refreshToken || '',
 };
 
 export const store = {
@@ -144,6 +146,8 @@ export const store = {
     for (const e of entries.values()) c[e.date] = (c[e.date] || 0) + 1;
     return c;
   },
+  all: () => [...entries.values()],
+  ready: () => ready.entries,
   async total() {
     return entries.size;
   },

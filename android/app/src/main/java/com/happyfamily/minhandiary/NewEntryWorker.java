@@ -1,0 +1,211 @@
+package com.happyfamily.minhandiary;
+
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.os.Build;
+
+import androidx.annotation.NonNull;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
+import androidx.work.Worker;
+import androidx.work.WorkerParameters;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * 앱이 꺼져 있어도 15분마다 클라우드(Firestore)에서 다른 사람이 새로 쓴 글을 찾아 알림을 띄운다.
+ * - 1개: "새 내용이 1월 6일자로 올라왔어요" + 내용 미리보기
+ * - 여러 개: 하나로 합쳐 "새 내용이 3개 작성되었어요"
+ * - 누르면 가장 먼저 쓰인 새 글로 이동 (MainActivity 가 웹 화면에 전달)
+ */
+public class NewEntryWorker extends Worker {
+    static final String PREFS = "minhan-notify";
+    static final String CHANNEL = "new_entries";
+    static final int NOTIF_ID = 1001;
+    static final String EXTRA_OPEN = "openEntry";
+
+    // www/firebase-config.js 와 같은 값
+    private static final String API_KEY = "AIzaSyASJgfGdlxzfGPm9mmwqMtu_c7NF0iiwfk";
+    private static final String PROJECT = "minhan-diary";
+    private static final String FAMILY = "happyfamily";
+
+    public NewEntryWorker(@NonNull Context context, @NonNull WorkerParameters params) {
+        super(context, params);
+    }
+
+    /** 15분마다 확인하도록 등록 (이미 있으면 그대로) */
+    static void schedule(Context ctx) {
+        Constraints c = new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
+        PeriodicWorkRequest req = new PeriodicWorkRequest.Builder(NewEntryWorker.class, 15, TimeUnit.MINUTES)
+            .setConstraints(c)
+            .build();
+        WorkManager.getInstance(ctx).enqueueUniquePeriodicWork("new-entries", ExistingPeriodicWorkPolicy.KEEP, req);
+    }
+
+    /** 지금 한 번 확인 (시험용) */
+    static void checkNow(Context ctx) {
+        OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(NewEntryWorker.class).build();
+        WorkManager.getInstance(ctx).enqueueUniqueWork("new-entries-now", ExistingWorkPolicy.REPLACE, req);
+    }
+
+    static void ensureChannel(Context ctx) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel ch = new NotificationChannel(CHANNEL, "새 글 알림", NotificationManager.IMPORTANCE_DEFAULT);
+            ch.setDescription("가족이 민한이 기록을 새로 쓰면 알려 줘요");
+            ctx.getSystemService(NotificationManager.class).createNotificationChannel(ch);
+        }
+    }
+
+    @NonNull
+    @Override
+    public Result doWork() {
+        Context ctx = getApplicationContext();
+        SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String refresh = p.getString("refreshToken", "");
+        if (refresh.isEmpty()) return Result.success(); // 아직 로그인 전
+        try {
+            // 1) 로그인 토큰 받기
+            String form = "grant_type=refresh_token&refresh_token=" + URLEncoder.encode(refresh, "UTF-8");
+            JSONObject tok = new JSONObject(http("https://securetoken.googleapis.com/v1/token?key=" + API_KEY,
+                "application/x-www-form-urlencoded", form, null));
+            String idToken = tok.getString("id_token");
+            if (tok.has("refresh_token")) p.edit().putString("refreshToken", tok.getString("refresh_token")).apply();
+
+            // 2) 마지막으로 확인한 뒤에 쓰인 글 찾기
+            String since = max(p.getString("since", ""), max(p.getString("appSeen", ""), p.getString("lastNotified", "")));
+            JSONObject q = new JSONObject()
+                .put("structuredQuery", new JSONObject()
+                    .put("from", new JSONArray().put(new JSONObject().put("collectionId", "entries")))
+                    .put("where", new JSONObject().put("fieldFilter", new JSONObject()
+                        .put("field", new JSONObject().put("fieldPath", "createdAt"))
+                        .put("op", "GREATER_THAN")
+                        .put("value", new JSONObject().put("stringValue", since))))
+                    .put("orderBy", new JSONArray().put(new JSONObject()
+                        .put("field", new JSONObject().put("fieldPath", "createdAt")).put("direction", "ASCENDING")))
+                    .put("limit", 50));
+            String url = "https://firestore.googleapis.com/v1/projects/" + PROJECT
+                + "/databases/(default)/documents/families/" + FAMILY + ":runQuery";
+            JSONArray rows = new JSONArray(http(url, "application/json", q.toString(), idToken));
+
+            String me = p.getString("author", "");
+            JSONArray pending = new JSONArray(p.getString("pending", "[]"));
+            String lastNotified = p.getString("lastNotified", "");
+            int added = 0;
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject doc = rows.getJSONObject(i).optJSONObject("document");
+                if (doc == null) continue;
+                JSONObject f = doc.getJSONObject("fields");
+                String author = str(f, "author");
+                String createdAt = str(f, "createdAt");
+                lastNotified = max(lastNotified, createdAt);
+                if (author.isEmpty() || author.equals(me)) continue; // 내가 쓴 글은 알리지 않음
+                pending.put(new JSONObject()
+                    .put("id", str(f, "id"))
+                    .put("date", str(f, "date"))
+                    .put("text", str(f, "text"))
+                    .put("author", author));
+                added++;
+            }
+            p.edit().putString("pending", pending.toString()).putString("lastNotified", lastNotified).apply();
+            if (added > 0) show(ctx, pending);
+            return Result.success();
+        } catch (Exception e) {
+            return Result.retry();
+        }
+    }
+
+    /** 알림 띄우기: 여러 개면 하나로 합침. 누르면 가장 먼저 쓰인 글로 */
+    static void show(Context ctx, JSONArray pending) throws Exception {
+        if (pending.length() == 0) return;
+        ensureChannel(ctx);
+        JSONObject first = pending.getJSONObject(0);
+        String title;
+        String body;
+        if (pending.length() == 1) {
+            title = "새 내용이 " + koDate(first.getString("date")) + "자로 올라왔어요";
+            body = first.optString("author") + ": " + first.optString("text");
+        } else {
+            title = "새 내용이 " + pending.length() + "개 작성되었어요";
+            body = "눌러서 먼저 쓰인 것부터 볼 수 있어요";
+        }
+        Intent open = new Intent(ctx, MainActivity.class)
+            .putExtra(EXTRA_OPEN, first.getString("id"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent pi = PendingIntent.getActivity(ctx, 0, open,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_note)
+            .setColor(0xFFF57A2E)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+            .setNumber(pending.length())
+            .setContentIntent(pi)
+            .setAutoCancel(true);
+        try {
+            NotificationManagerCompat.from(ctx).notify(NOTIF_ID, b.build());
+        } catch (SecurityException ignored) {
+            // 알림 권한을 허용하지 않은 경우
+        }
+    }
+
+    private static String koDate(String ymd) {
+        try {
+            String[] s = ymd.split("-");
+            return Integer.parseInt(s[1]) + "월 " + Integer.parseInt(s[2]) + "일";
+        } catch (Exception e) {
+            return ymd;
+        }
+    }
+
+    private static String str(JSONObject fields, String key) {
+        JSONObject v = fields.optJSONObject(key);
+        return v == null ? "" : v.optString("stringValue", "");
+    }
+
+    private static String max(String a, String b) {
+        return a.compareTo(b) >= 0 ? a : b;
+    }
+
+    private static String http(String url, String type, String body, String bearer) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setRequestMethod("POST");
+        c.setConnectTimeout(15000);
+        c.setReadTimeout(20000);
+        c.setDoOutput(true);
+        c.setRequestProperty("Content-Type", type);
+        if (bearer != null) c.setRequestProperty("Authorization", "Bearer " + bearer);
+        try (OutputStream os = c.getOutputStream()) {
+            os.write(body.getBytes(StandardCharsets.UTF_8));
+        }
+        int code = c.getResponseCode();
+        InputStream in = code < 400 ? c.getInputStream() : c.getErrorStream();
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        int n;
+        while (in != null && (n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
+        if (code >= 400) throw new RuntimeException("HTTP " + code + " " + buf.toString("UTF-8"));
+        return buf.toString("UTF-8");
+    }
+}
