@@ -103,9 +103,11 @@ const NOISE_WORD = /^(?:[<>@©®◎○●·•.,'"`~_\-=|\\/*]+|\d{1,4}|[vV]{1,2
  * @param bin    같은 크기의 흑백 그림(띄어쓰기 찾기용, 없어도 됨)
  * @returns {{text,date,time,side,from}[] | null}  말풍선을 못 찾으면 null
  */
-export function bubblesFromOcr(lines, img, today, bin = null) {
-  const rects = findBubbles(img);
+export function bubblesFromOcr(lines, img, today, bin = null, opts = {}) {
+  const rects = opts.rects || findBubbles(img);
   if (!rects.length) return null;
+  // 말풍선마다 따로 읽은 줄이 있으면 그걸 쓴다 (화면 전체로 읽으면 빠뜨리는 말풍선이 있음)
+  const textSource = opts.bubbleLines || lines;
   const W = img.width;
   const inside = (r, b) => {
     const cx = (b.x0 + b.x1) / 2;
@@ -122,9 +124,12 @@ export function bubblesFromOcr(lines, img, today, bin = null) {
     const d = parseDateLine(text, today);
     if (d) dates.push({ y: line.bbox.y0, date: d });
   }
+  // 따로 다시 읽은 날짜 표시 (말풍선·시간과 겹친 것)
+  for (const d of opts.dates || []) dates.push(d);
+  dates.sort((a, b) => a.y - b.y);
   const out = [];
   for (const r of rects) {
-    const mine = lines.filter((l) => inside(r, l.bbox)).sort((a, b) => a.bbox.y0 - b.bbox.y0);
+    const mine = textSource.filter((l) => inside(r, l.bbox)).sort((a, b) => a.bbox.y0 - b.bbox.y0);
     const textLines = [];
     let time = '';
     let prevBottom = null;
@@ -238,3 +243,73 @@ function spaceByPixels(kept, lb, bin) {
   }
   return chars.map((c, i) => (at.has(i) ? ' ' : '') + c).join('');
 }
+
+/**
+ * 날짜 표시처럼 보이는 곳: 화면 가운데에 있고, 글씨가 색 바탕 위의 흰 글씨(또는 색 글씨)인 짧은 줄.
+ * 시간·말풍선과 겹쳐 잘못 읽히기 쉬워서, 이 부분만 잘라 다시 읽는다.
+ * @returns {{x0,y0,x1,y1}[]}
+ */
+export function datePillCandidates(lines, img) {
+  const W = img.width;
+  const out = [];
+  for (const line of lines) {
+    const words = (line.words || []).filter((w) => String(w.text).trim());
+    const colored = words.filter((w) => {
+      const c = inkColor(img, w.bbox);
+      return c === 'color' || c === 'light';
+    });
+    if (!colored.length) continue;
+    const box = {
+      x0: Math.min(...colored.map((w) => w.bbox.x0)),
+      x1: Math.max(...colored.map((w) => w.bbox.x1)),
+      y0: Math.min(...colored.map((w) => w.bbox.y0)),
+      y1: Math.max(...colored.map((w) => w.bbox.y1)),
+    };
+    const cx = (box.x0 + box.x1) / 2;
+    if (Math.abs(cx - W / 2) > W * 0.12 || box.x1 - box.x0 > W * 0.5) continue;
+    if (box.y0 < img.height * 0.03) continue; // 맨 위 상태 표시줄
+    out.push(box);
+  }
+  return out;
+}
+
+/** 날짜 표시 부분을 잘라 '흰 바탕 검은 글씨'로 바꾼 그림 (다시 읽기용) */
+export function pillCanvas(img, box) {
+  const h = box.y1 - box.y0;
+  const x0 = Math.max(0, Math.round(box.x0 - h * 0.3));
+  const x1 = Math.min(img.width - 1, Math.round(box.x1 + h * 0.3));
+  const y0 = Math.max(0, Math.round(box.y0 - h * 0.35));
+  const y1 = Math.min(img.height - 1, Math.round(box.y1 + h * 0.35));
+  const w = x1 - x0 + 1;
+  const hh = y1 - y0 + 1;
+  const scale = Math.max(1, 64 / hh);
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * scale);
+  c.height = Math.round(hh * scale);
+  const ctx = c.getContext('2d');
+  const src = new ImageData(w, hh);
+  const vals = [];
+  for (let y = 0; y < hh; y++)
+    for (let x = 0; x < w; x++) {
+      const i = ((y0 + y) * img.width + (x0 + x)) * 4;
+      vals.push(lum(img.data[i], img.data[i + 1], img.data[i + 2]));
+    }
+  // 가장 밝은 쪽(흰 글씨)을 검게
+  const sorted = [...vals].sort((a, b) => a - b);
+  const thr = (sorted[Math.floor(sorted.length * 0.5)] + sorted[Math.floor(sorted.length * 0.97)]) / 2;
+  vals.forEach((v, k) => {
+    const o = v > thr ? 0 : 255;
+    src.data.set([o, o, o, 255], k * 4);
+  });
+  const tmp = document.createElement('canvas');
+  tmp.width = w;
+  tmp.height = hh;
+  tmp.getContext('2d').putImageData(src, 0, 0);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(tmp, 0, 0, c.width, c.height);
+  return c;
+}
+
+/** 줄들의 평균 확신도 (0~100) */
+export const avgConfidence = (lines) => (lines.length ? lines.reduce((s, l) => s + (l.confidence ?? 0), 0) / lines.length : 0);

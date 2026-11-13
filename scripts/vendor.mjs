@@ -16,7 +16,7 @@ for (const f of fs.readdirSync('node_modules/tesseract.js-core')) {
   if (/^tesseract-core.*\.wasm\.js$/.test(f) && f.includes('lstm')) cp(`tesseract.js-core/${f}`, `core/${f}`);
 }
 // 사전은 압축을 풀어서 넣는다: 안드로이드 APK 를 만들 때 '.gz' 파일 이름이 바뀌어 버려서 앱에서 못 찾기 때문
-for (const lang of ['kor']) {
+for (const lang of ['kor', 'eng']) {
   const gz = fs.readFileSync(path.resolve('node_modules', `@tesseract.js-data/${lang}/4.0.0_best_int/${lang}.traineddata.gz`));
   fs.writeFileSync(path.join(out, 'lang', `${lang}.traineddata`), gunzipSync(gz));
 }

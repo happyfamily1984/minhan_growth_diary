@@ -2,9 +2,9 @@ import { BIRTH_DATE, BIRTH_INSTANT, dayNumber, dateOfDay, age, todaySeoul } from
 import { store, auth$ } from './store.js';
 import { store as localStore } from './local-store.js';
 import { shrinkPhoto, photoTakenDate, decodeImage } from './photo.js';
-import { parseText, linesToBubbles } from './parse.js';
+import { parseText, linesToBubbles, parseDateLine } from './parse.js';
 import { binarize } from './ocr-prep.js';
-import { bubblesFromOcr } from './bubbles.js';
+import { bubblesFromOcr, findBubbles, datePillCandidates, pillCanvas } from './bubbles.js';
 import { kv } from './kv.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -783,7 +783,19 @@ async function ocrImages(files) {
       // 캡쳐에 날짜가 없으면: 사진 만든 날짜 → 없으면 위에서 고른 날짜
       const shotDate = file.lastModified ? todaySeoul(new Date(file.lastModified)) : null;
       // 말풍선을 찾으면 말풍선 하나 = 기록 하나, 못 찾으면 예전 방식(줄 묶기)
-      const found = bubblesFromOcr(lines, original, todaySeoul(), bin) || linesToBubbles(lines, width, todaySeoul());
+      const rects = findBubbles(original);
+      let found = null;
+      if (rects.length) {
+        status.textContent = `말풍선 ${rects.length}개 읽는 중… (${i + 1}/${files.length})`;
+        const dates = await readDatePills(worker, lines, original);
+        const bubbleLines = [];
+        for (const [k, r] of rects.entries()) {
+          bar.style.width = `${Math.round(((k + 1) / rects.length) * 100)}%`;
+          bubbleLines.push(...(await readBubble(worker, bin, r)));
+        }
+        found = bubblesFromOcr(lines, original, todaySeoul(), bin, { rects, bubbleLines, dates });
+      }
+      found ||= linesToBubbles(lines, width, todaySeoul());
       const color = document.createElement('canvas');
       color.width = original.width;
       color.height = original.height;
@@ -799,6 +811,100 @@ async function ocrImages(files) {
     const info = files.map((f) => `${f.type || '종류 없음'} · ${Math.round((f.size || 0) / 1024)}KB`).join(', ');
     importResult.innerHTML = `<div class="card error">${esc(err.message || err)}<br><small class="muted">${esc(info)}</small></div>`;
   }
+}
+
+/** 그림 일부를 잘라 그 부분만 읽고, 위치를 원래 그림 기준으로 되돌린다 */
+async function ocrRegion(worker, src, r, psm) {
+  const pad = 8;
+  const x = Math.max(0, Math.floor(r.x0 - pad));
+  const y = Math.max(0, Math.floor(r.y0 - pad));
+  const w = Math.min(src.width - x, Math.ceil(r.x1 - r.x0 + pad * 2));
+  const h = Math.min(src.height - y, Math.ceil(r.y1 - r.y0 + pad * 2));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  if (src instanceof ImageData) c.getContext('2d').putImageData(src, -x, -y);
+  else c.getContext('2d').drawImage(src, x, y, w, h, 0, 0, w, h);
+  await worker.setParameters({ tessedit_pageseg_mode: psm });
+  const { data } = await worker.recognize(c, {}, { blocks: true });
+  await worker.setParameters({ tessedit_pageseg_mode: '4' });
+  const move = (b) => ({ x0: b.x0 + x, x1: b.x1 + x, y0: b.y0 + y, y1: b.y1 + y });
+  return ocrLines(data).map((l) => ({ ...l, bbox: move(l.bbox), words: (l.words || []).map((wd) => ({ ...wd, bbox: move(wd.bbox) })) }));
+}
+
+/** 말풍선 하나를 따로 읽는다. 잘 안 읽혔으면(영어가 섞인 경우 등) 한글+영어 사전으로 한 번 더 읽어 나은 쪽 */
+async function readBubble(worker, bin, r) {
+  const kor = await ocrRegion(worker, bin, r, '6');
+  if (!kor.some((l) => (l.confidence ?? 100) < 72)) return kor;
+  let alt;
+  try {
+    alt = await ocrRegion(await getBilingualWorker(), bin, r, '6');
+  } catch (err) {
+    console.error('eng', err);
+    return kor;
+  }
+  // 줄마다: 한글로 읽은 줄이 이상하고(숫자·부호 뒤범벅) 영어로 읽은 줄에 진짜 영어 낱말이 있으면 영어 쪽
+  return kor.map((line) => {
+    const twin = alt
+      .map((a) => ({ a, o: Math.min(a.bbox.y1, line.bbox.y1) - Math.max(a.bbox.y0, line.bbox.y0) }))
+      .sort((x, y) => y.o - x.o)[0];
+    if (!twin || twin.o <= 0) return line;
+    return looksEnglish(twin.a.text) && looksGarbled(line.text) ? fixEnglish(twin.a) : line;
+  });
+}
+
+/** 진짜 영어 낱말(소문자 2글자 이상)이 있고, 대문자 뒤범벅(AHOOFE 같은 것)이 아닌지 */
+function looksEnglish(text) {
+  const words = String(text).match(/[A-Za-z]{2,}/g) || [];
+  const lower = words.filter((w) => /^[a-z]+$/.test(w) || /^[A-Z][a-z]+$/.test(w));
+  const caps = words.filter((w) => /^[A-Z]{3,}$/.test(w));
+  return lower.length >= 2 && caps.length === 0;
+}
+/** 한글 사전으로 읽은 줄이 숫자·부호 뒤범벅인지 (영어를 한글로 잘못 읽은 경우) */
+function looksGarbled(text) {
+  const t = String(text);
+  return /[<>]|\d{3,}|\d[가-힣]\d|[가-힣]\d{2,}[가-힣<]/.test(t);
+}
+/** 영어로 읽을 때 자주 틀리는 것 바로잡기: 맨 앞 '|' → 'I' */
+function fixEnglish(line) {
+  const words = (line.words || []).map((w, i) => (i === 0 && /^[|l]$/.test(w.text) ? { ...w, text: 'I' } : w));
+  return { ...line, words, text: String(line.text).replace(/^\|\s/, 'I ') };
+}
+
+/** 가운데 색 바탕 글씨(날짜 표시)만 잘라 다시 읽어 날짜를 찾는다 */
+async function readDatePills(worker, lines, original) {
+  const out = [];
+  for (const box of datePillCandidates(lines, original)) {
+    const c = pillCanvas(original, box);
+    await worker.setParameters({ tessedit_pageseg_mode: '7' });
+    const { data } = await worker.recognize(c);
+    await worker.setParameters({ tessedit_pageseg_mode: '4' });
+    const text = String(data.text || '').replace(/\s+/g, ' ').trim();
+    // '2월 15일 입' 처럼 옆 글자가 붙어도 날짜 부분만 찾는다
+    const m = text.match(/(?:(\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+    const d = m ? parseDateLine(m[0], todaySeoul()) : parseDateLine(text, todaySeoul());
+    if (d) out.push({ y: box.y0, date: d });
+  }
+  return out;
+}
+
+let bilingualP;
+function getBilingualWorker() {
+  bilingualP ??= (async () => {
+    const base = new URL('vendor/', location.href).href;
+    const w = await window.Tesseract.createWorker(['kor', 'eng'], 1, {
+      workerPath: base + 'worker.min.js',
+      corePath: base + 'core/',
+      langPath: base + 'lang',
+      gzip: false,
+      cacheMethod: 'none',
+    });
+    return w;
+  })().catch((e) => {
+    bilingualP = null;
+    throw e;
+  });
+  return bilingualP;
 }
 
 /** 말풍선 부분만 잘라 작은 그림으로 (후보 옆에 보여 주고 임시저장에도 넣음) */
