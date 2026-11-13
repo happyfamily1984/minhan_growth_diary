@@ -172,7 +172,7 @@ export function bubblesFromOcr(lines, img, today, bin = null) {
     if (!text) continue;
     const above = dates.filter((d) => d.y < r.y0).pop();
     const cx = (r.x0 + r.x1) / 2;
-    out.push({ text, date: above?.date || null, time, side: cx < W / 2 ? 'left' : 'right', from: '' });
+    out.push({ text, date: above?.date || null, time, side: cx < W / 2 ? 'left' : 'right', from: '', rect: r });
   }
   return out;
 }

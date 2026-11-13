@@ -5,6 +5,7 @@ import { shrinkPhoto, photoTakenDate, decodeImage } from './photo.js';
 import { parseText, linesToBubbles } from './parse.js';
 import { binarize } from './ocr-prep.js';
 import { bubblesFromOcr } from './bubbles.js';
+import { kv } from './kv.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -122,6 +123,7 @@ function showView(name, { push = true } = {}) {
   for (const s of $$('.view')) s.hidden = s.id !== `view-${name}`;
   for (const b of $$('.bottom [data-view]')) b.classList.toggle('active', b.dataset.view === name);
   $('#bannerImg').src = `img/banner-${name}.webp`;
+  requestAnimationFrame(() => growAll());
   const left = $('#topLeftBtn');
   left.textContent = name === 'home' ? '🔍' : '🏠';
   left.setAttribute('aria-label', name === 'home' ? '찾기' : '처음 화면');
@@ -247,6 +249,7 @@ function openEditor(date, entry = null) {
   $('#editorDelete').hidden = !entry;
   updateEditorDay();
   openDialog(editor);
+  requestAnimationFrame(() => growAll(editor));
   if (!entry) form.text.focus();
 }
 const closeEditor = () => closeDialog(editor);
@@ -542,6 +545,7 @@ async function openPhoto(p) {
   pform.caption.value = p.caption || '';
   $('#photoViewDay').innerHTML = `${dayText(p.date)} · ${ageText(p.date)}${p.author ? ` · ${esc(p.author)}` : ''}`;
   openDialog(photoView);
+  requestAnimationFrame(() => growAll(photoView));
   try {
     const full = await store.photoData(p.id);
     if (full && viewing === p) img.src = full;
@@ -767,10 +771,12 @@ async function ocrImages(files) {
     ]);
     const all = [];
     const previews = [];
+    const images = [];
     for (const [i, file] of files.entries()) {
       status.textContent = `글자 읽는 중… (${i + 1}/${files.length})`;
       bar.style.width = '0%';
       previews.push(URL.createObjectURL(file));
+      images.push(file);
       const { canvas, width, original, bin } = await prepareImage(file);
       const { data } = await worker.recognize(canvas, {}, { blocks: true });
       const lines = ocrLines(data);
@@ -778,17 +784,49 @@ async function ocrImages(files) {
       const shotDate = file.lastModified ? todaySeoul(new Date(file.lastModified)) : null;
       // 말풍선을 찾으면 말풍선 하나 = 기록 하나, 못 찾으면 예전 방식(줄 묶기)
       const found = bubblesFromOcr(lines, original, todaySeoul(), bin) || linesToBubbles(lines, width, todaySeoul());
+      const color = document.createElement('canvas');
+      color.width = original.width;
+      color.height = original.height;
+      color.getContext('2d').putImageData(original, 0, 0);
       for (const b of found) {
-        all.push({ ...b, shotDate, checked: false });
+        const { rect, ...rest } = b;
+        all.push({ ...rest, shotDate, checked: false, crops: rect ? [cropBubble(color, rect)] : [] });
       }
     }
-    renderPicker(all, 'ocr', previews);
+    renderPicker(all, 'ocr', previews, { images });
   } catch (err) {
     // 원인을 알 수 있게 사진 정보도 작게 보여 준다
     const info = files.map((f) => `${f.type || '종류 없음'} · ${Math.round((f.size || 0) / 1024)}KB`).join(', ');
     importResult.innerHTML = `<div class="card error">${esc(err.message || err)}<br><small class="muted">${esc(info)}</small></div>`;
   }
 }
+
+/** 말풍선 부분만 잘라 작은 그림으로 (후보 옆에 보여 주고 임시저장에도 넣음) */
+function cropBubble(src, r) {
+  const pad = 6;
+  const x = Math.max(0, r.x0 - pad);
+  const y = Math.max(0, r.y0 - pad);
+  const w = Math.min(src.width - x, r.x1 - r.x0 + pad * 2);
+  const h = Math.min(src.height - y, r.y1 - r.y0 + pad * 2);
+  const scale = Math.min(1, 640 / w);
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * scale);
+  c.height = Math.round(h * scale);
+  c.getContext('2d').drawImage(src, x, y, w, h, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.75);
+}
+
+/** 글 길이에 맞춰 입력칸 높이를 저절로 맞춘다 (끝까지 다 보이게) */
+function autoGrow(ta) {
+  if (!ta.offsetParent) return; // 안 보이는 칸은 보일 때 다시 맞춤
+  ta.style.height = 'auto';
+  ta.style.height = ta.scrollHeight + 2 + 'px';
+}
+function growAll(root = document) {
+  for (const ta of root.querySelectorAll('textarea.grow')) autoGrow(ta);
+}
+document.addEventListener('input', (e) => e.target.matches?.('textarea.grow') && autoGrow(e.target));
+addEventListener('resize', () => growAll());
 
 /** tesseract 결과에서 줄 목록(낱말 포함)을 꺼낸다 (버전마다 모양이 조금 달라서) */
 function ocrLines(data) {
@@ -838,7 +876,7 @@ const draft = {
   },
 };
 
-function renderPicker(items, source, previews = [], { restored = false } = {}) {
+function renderPicker(items, source, previews = [], { restored = false, images = [] } = {}) {
   const fallback = () => $('#fallbackDate').value || todaySeoul();
   importResult.replaceChildren();
   if (!items.length) {
@@ -849,10 +887,11 @@ function renderPicker(items, source, previews = [], { restored = false } = {}) {
   card.className = 'card';
   const hasSides = items.some((i) => i.side);
   card.innerHTML = `
-    ${previews.map((u) => `<img class="ocr-img" src="${u}" alt="캡쳐">`).join('')}
+    ${previews.length ? `<details class="ocr-originals"${restored ? '' : ' open'}><summary>📷 올린 캡쳐 ${previews.length}장 보기</summary>${previews.map((u) => `<img class="ocr-img" src="${u}" alt="캡쳐">`).join('')}</details>` : ''}
     <div class="pick-tools">
       <button class="btn small" data-sel="all">모두 선택</button>
       <button class="btn small" data-sel="none">선택 해제</button>
+      <button class="btn small" data-merge>🔗 선택 합치기</button>
       ${hasSides ? '<button class="btn small" data-sel="left">왼쪽 말풍선</button><button class="btn small" data-sel="right">오른쪽 말풍선</button>' : ''}
     </div>
     <div class="pick-tools">
@@ -879,11 +918,13 @@ function renderPicker(items, source, previews = [], { restored = false } = {}) {
     row.innerHTML = `
       <input type="checkbox" ${it.checked ? 'checked' : ''} aria-label="선택">
       <div class="pick-body">
-        <textarea class="pick-text" rows="1">${esc(it.text)}</textarea>
+        <div class="pick-crops"></div>
+        <textarea class="pick-text grow" rows="1">${esc(it.text)}</textarea>
         <div class="pick-meta">
           <input type="date" class="pick-date" min="${BIRTH_DATE}" value="${it.dateValue || it.date || (!fallbackTouched && it.shotDate) || fallback()}">
           ${it.date || it.auto === false ? '' : '<span class="warn">날짜 못 찾음</span>'}
           <button type="button" class="kind-btn"></button>
+          <button type="button" class="merge-up">⬆ 위와 합치기</button>
         </div>
       </div>`;
     const r = { it, row, cb: $('input[type=checkbox]', row), ta: $('textarea', row), date: $('.pick-date', row), kindBtn: $('.kind-btn', row), kind: 'say' };
@@ -897,12 +938,16 @@ function renderPicker(items, source, previews = [], { restored = false } = {}) {
       setRowKind(r.kind === 'say' ? 'did' : 'say');
       saveDraft();
     });
-    const fit = () => {
-      r.ta.style.height = 'auto';
-      r.ta.style.height = r.ta.scrollHeight + 'px';
+    r.crops = [...(it.crops || [])];
+    r.showCrops = () => {
+      $('.pick-crops', row).innerHTML = r.crops.map((u) => `<img src="${u}" alt="말풍선">`).join('');
     };
-    requestAnimationFrame(fit);
-    r.ta.addEventListener('input', fit);
+    r.showCrops();
+    requestAnimationFrame(() => autoGrow(r.ta));
+    $('.merge-up', row).addEventListener('click', () => {
+      const i = rows.indexOf(r);
+      if (i > 0) mergeRows([rows[i - 1], r]);
+    });
     r.auto = it.auto ?? !it.date; // 글에서 날짜를 못 찾은 것 → 위의 날짜를 따라감
     r.date.addEventListener('change', () => {
       $('.warn', row)?.remove();
@@ -913,15 +958,42 @@ function renderPicker(items, source, previews = [], { restored = false } = {}) {
   });
 
   pickerRows = rows;
+  /** 여러 후보를 하나로 (맨 위 것에 글·말풍선 그림을 이어 붙임) */
+  function mergeRows(list) {
+    if (list.length < 2) return toast('합칠 것을 2개 이상 체크해 주세요');
+    const [first, ...rest] = list;
+    const dates = new Set(list.map((r) => r.date.value));
+    if (dates.size > 1 && !confirm(`날짜가 서로 달라요. 맨 위 것(${prettyDate(first.date.value)})으로 합칠까요?`)) return;
+    first.ta.value = [first.ta.value.trim(), ...rest.map((r) => r.ta.value.trim())].filter(Boolean).join('\n\n');
+    for (const r of rest) {
+      first.crops.push(...r.crops);
+      if (r.cb.checked) first.cb.checked = true;
+      r.row.remove();
+      rows.splice(rows.indexOf(r), 1);
+    }
+    first.showCrops();
+    autoGrow(first.ta);
+    refreshMergeButtons();
+    update();
+    saveDraft();
+    toast(`${list.length}개를 하나로 합쳤어요`);
+  }
+  function refreshMergeButtons() {
+    rows.forEach((r, i) => ($('.merge-up', r.row).hidden = i === 0));
+  }
+  refreshMergeButtons();
+  $('[data-merge]', card).addEventListener('click', () => mergeRows(rows.filter((r) => r.cb.checked)));
   let saveTimer;
   function saveDraft() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      if (!rows.length) return draft.clear('import');
-      draft.set('import', {
+      if (!rows.length) return kv.del('import');
+      kv.set('import', {
         source,
+        images,
         savedAt: new Date().toISOString(),
         items: rows.map((r) => ({
+          crops: r.crops,
           text: r.ta.value,
           date: r.it.date || null,
           dateValue: r.date.value,
@@ -940,7 +1012,7 @@ function renderPicker(items, source, previews = [], { restored = false } = {}) {
   $('[data-drop]', card)?.addEventListener('click', () => {
     if (!confirm('하던 목록을 지울까요?')) return;
     rows.length = 0;
-    draft.clear('import');
+    kv.del('import');
     importResult.replaceChildren();
   });
   saveDraft();
@@ -981,6 +1053,7 @@ function renderPicker(items, source, previews = [], { restored = false } = {}) {
       toast(`${sel.length}개를 ${dates.length > 1 ? `${dates.length}개 날짜에` : prettyDate(dates[0]) + '에'} 넣었어요 💛`);
       for (const r of sel) r.row.remove();
       rows.splice(0, rows.length, ...rows.filter((r) => !sel.includes(r)));
+      refreshMergeButtons();
       update();
       saveDraft();
       if (!rows.length) {
@@ -1021,12 +1094,17 @@ window.onAndroidShare = takeShared;
 document.addEventListener('visibilitychange', () => !document.hidden && takeShared());
 
 /** 앱이 새로 열렸을 때: 하던 가져오기 목록, 붙여넣기 글, 쓰기창 되살리기 */
-function restoreDrafts() {
+async function restoreDrafts() {
   const paste = draft.get('paste');
   if (paste && !pasteBox.value) pasteBox.value = paste;
-  const imp = draft.get('import');
-  if (imp?.items?.length) {
-    renderPicker(imp.items, imp.source || 'ocr', [], { restored: true });
+  // 예전 버전(글만 저장)에서 넘어온 것
+  const old = draft.get('import');
+  if (old?.items?.length && !(await kv.get('import'))) await kv.set('import', old);
+  draft.clear('import');
+  const imp = await kv.get('import');
+  if (imp?.items?.length && !pickerRows.length) {
+    const images = imp.images || [];
+    renderPicker(imp.items, imp.source || 'ocr', images.map((b) => URL.createObjectURL(b)), { restored: true, images });
     if (currentView === 'home') toast('하던 가져오기 목록이 있어요 (가져오기 탭)');
   }
   restoreWrite();
