@@ -500,3 +500,22 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
 .hero .s3 { top: 56px; right: 8px; font-size: min(1.6rem, 6vw); }
 .cloud-box img { width: min(110px, 24vw); }
 .cloud-box p { font-size: min(0.98rem, 3.9vw); }
+
+/* ---------- 상단바·하단 버튼 줄 피하기 (안드로이드 15 화면 꽉 채우기 대응) ----------
+   앱(Capacitor)이 --safe-area-inset-* 값을 넣어 주고, 브라우저는 env() 를 쓴다. */
+:root {
+  --inset-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --inset-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+}
+body { padding-top: var(--inset-top); }
+.bottom { background: #fffdf9; padding-bottom: calc(8px + var(--inset-bottom)); }
+main { padding-bottom: calc(110px + var(--inset-bottom)); }
+.sticky-actions { bottom: calc(96px + var(--inset-bottom)); }
+.toast { bottom: calc(110px + var(--inset-bottom)); }
+dialog.sheet { padding-top: var(--inset-top); padding-bottom: var(--inset-bottom); }
+dialog:not(.sheet) { max-height: calc(100vh - var(--inset-top) - var(--inset-bottom) - 24px); }
+/* 스크롤해도 상단바 밑으로 글씨가 지나가지 않게 하늘색 띠로 가린다 */
+body::before {
+  content: ''; position: fixed; top: 0; left: 0; right: 0; height: var(--inset-top);
+  background: #d6e9fc; z-index: 50; pointer-events: none;
+}
