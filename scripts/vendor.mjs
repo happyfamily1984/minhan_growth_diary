@@ -31,5 +31,4 @@ for (const font of ['jua', 'gowun-dodum']) {
   }
 }
 buildSync({ entryPoints: ['src/firebase.js'], bundle: true, format: 'esm', minify: true, outfile: path.join(out, 'firebase.js'), logLevel: 'warning' });
-buildSync({ entryPoints: ['src/anthropic.js'], bundle: true, format: 'esm', minify: true, platform: 'browser', outfile: path.join(out, 'anthropic.js'), logLevel: 'warning' });
 console.log('vendor 준비 완료:', out);

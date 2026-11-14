@@ -13,3 +13,5 @@ export {
   getDoc,
   onSnapshot,
 } from 'firebase/firestore';
+// 월별 AI 분석 (Firebase AI Logic → Gemini 무료 등급)
+export { getAI, getGenerativeModel, GoogleAIBackend, AIError } from 'firebase/ai';

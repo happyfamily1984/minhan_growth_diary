@@ -1,9 +1,12 @@
 // 월별 AI 성장 분석: 그 달의 기록을 Claude 에게 보내서 민한이의 상황·심리·발달을 긍정적으로 읽어 달라고 한다.
-// (사주·글자 읽기와 달리 인터넷이 필요하고, 한 번 할 때마다 Anthropic 요금이 조금 나간다)
-import { Anthropic } from './vendor/anthropic.js';
+// 구글 Gemini 무료 등급을 Firebase(우리 가족 클라우드)로 불러서 쓴다 → 돈이 들지 않고, 키도 따로 필요 없다
+// (사주·글자 읽기와 달리 인터넷이 필요하다)
+import { getAI, getGenerativeModel, GoogleAIBackend, AIError } from './vendor/firebase.js';
+import { firebaseApp } from './store.js';
 import { age, BIRTH_DATE } from './shared.js';
 
-export const AI_MODEL = 'claude-opus-5-5';
+// 앞에서부터 써 보고, 없어진 모델이면 다음 것으로
+const MODELS = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 const KIND_KO = { say: '한 말', funny: '웃긴 말', did: '한 일' };
 
 const SYSTEM = `당신은 아동발달과 아동심리를 깊이 공부한 따뜻한 전문가이자, 한 가족의 성장일기를 함께 읽는 다정한 조력자입니다.
@@ -69,42 +72,51 @@ export function summaryOf(text) {
 }
 
 function friendlyError(err) {
-  if (err instanceof Anthropic.AuthenticationError) return 'AI 키가 맞지 않아요. 설정에서 키를 다시 넣어 주세요';
-  if (err instanceof Anthropic.PermissionDeniedError) return 'AI 키에 권한이 없어요 (Anthropic 콘솔을 확인해 주세요)';
-  if (err instanceof Anthropic.RateLimitError) return '잠시 요청이 많아요. 조금 뒤에 다시 해 주세요';
-  if (err instanceof Anthropic.BadRequestError) {
-    const msg = String(err.message || '');
-    if (/credit|balance|billing/i.test(msg)) return 'Anthropic 계정의 크레딧(충전 금액)이 부족해요';
-    return '요청이 거절됐어요: ' + msg.slice(0, 160);
-  }
-  if (err instanceof Anthropic.APIConnectionError) return '인터넷 연결을 확인해 주세요';
-  if (err instanceof Anthropic.APIError) return `AI 서버 오류 (${err.status}). 조금 뒤에 다시 해 주세요`;
-  return err?.message || String(err);
+  const msg = String(err?.message || err || '');
+  const code = err instanceof AIError ? err.code : '';
+  if (code === 'api-not-enabled' || /not been used|is disabled|SERVICE_DISABLED|API_NOT_ENABLED/i.test(msg))
+    return 'Firebase에서 AI 기능이 아직 꺼져 있어요. Firebase 콘솔 › AI Logic › 시작하기(Gemini Developer API)를 한 번 눌러 주세요';
+  if (/429|quota|RESOURCE_EXHAUSTED|rate/i.test(msg)) return '오늘 무료로 쓸 수 있는 양을 다 썼거나 잠깐 많이 눌렀어요. 조금 뒤(또는 내일) 다시 해 주세요';
+  if (code === 'fetch-error' || /Failed to fetch|NetworkError|network/i.test(msg)) return '인터넷 연결을 확인해 주세요';
+  if (/SAFETY|blocked/i.test(msg)) return 'AI가 이번 분석을 하지 못했어요. 다시 한 번 눌러 주세요';
+  return 'AI 분석 중 문제가 생겼어요: ' + msg.slice(0, 160);
 }
+const isModelGone = (err) => /\b404\b|not found|is not supported|NOT_FOUND/i.test(String(err?.message || ''));
 
 /** 분석하기. onText(지금까지 쓴 글) 로 쓰는 중인 글을 보여 준다 */
-export async function analyzeMonth({ apiKey, month, entries, photos, today, prev, onText }) {
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2 });
-  try {
-    const stream = client.beta.messages.stream({
-      model: AI_MODEL,
-      max_tokens: 16000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default', // 드물게 거절되면 다른 모델이 이어서 써 줌
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' },
-      system: SYSTEM,
-      messages: [{ role: 'user', content: buildPrompt({ month, entries, photos, today, prev }) }],
+export async function analyzeMonth({ month, entries, photos, today, prev, onText }) {
+  const ai = getAI(firebaseApp, { backend: new GoogleAIBackend() });
+  const prompt = buildPrompt({ month, entries, photos, today, prev });
+  let lastErr;
+  for (const name of MODELS) {
+    const model = getGenerativeModel(ai, {
+      model: name,
+      systemInstruction: SYSTEM,
+      generationConfig: { maxOutputTokens: 8192, temperature: 0.8 },
     });
-    if (onText) stream.on('text', (_delta, snapshot) => onText(snapshot));
-    const msg = await stream.finalMessage();
-    if (msg.stop_reason === 'refusal') throw new Error('AI가 이번 분석을 하지 못했어요. 다시 한 번 눌러 주세요');
-    const text = msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-    if (!text) throw new Error('AI가 빈 답을 보냈어요. 다시 한 번 눌러 주세요');
-    return { text, model: msg.model || AI_MODEL };
-  } catch (err) {
-    throw new Error(friendlyError(err));
+    let text = '';
+    try {
+      const res = await model.generateContentStream(prompt);
+      for await (const chunk of res.stream) {
+        let part = '';
+        try {
+          part = chunk.text();
+        } catch {}
+        if (part) {
+          text += part;
+          onText?.(text);
+        }
+      }
+      text = text.trim();
+      if (!text) throw new Error('AI가 빈 답을 보냈어요. 다시 한 번 눌러 주세요');
+      return { text, model: name };
+    } catch (err) {
+      lastErr = err;
+      if (!text && isModelGone(err)) continue; // 다음 모델로
+      break;
+    }
   }
+  throw new Error(friendlyError(lastErr));
 }
 
 /** 분석 글(## 제목, - 목록, **굵게**) → 화면용 HTML */

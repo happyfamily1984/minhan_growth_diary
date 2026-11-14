@@ -21,6 +21,7 @@ import {
 import { firebaseConfig, FAMILY_ID, FAMILY_EMAIL, toFirebasePassword } from './firebase-config.js';
 
 const app = initializeApp(firebaseConfig);
+export const firebaseApp = app; // 월별 AI 분석이 같이 씀
 const auth = getAuth(app);
 const fs = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() }) });
 
@@ -35,7 +36,6 @@ const entriesCol = collection(fs, `${base}/entries`);
 const photosCol = collection(fs, `${base}/photos`);
 const peopleCol = collection(fs, `${base}/people`); // 사주보기에 추가한 가족
 const analysesCol = collection(fs, `${base}/analyses`); // 월별 AI 분석 (문서 이름 = YYYY-MM)
-const aiSettingsDoc = doc(fs, `${base}/settings/ai`); // AI 키 (가족 계정만 읽을 수 있음)
 const photoDataDoc = (id) => doc(fs, `${base}/photoData/${id}`);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -48,7 +48,6 @@ let photos = new Map();
 let people = new Map();
 let analyses = new Map();
 let analysesReady = false;
-let aiSettings = {};
 let ready = { entries: false, photos: false };
 const listeners = new Set();
 let syncState = { offline: false, pending: false };
@@ -84,10 +83,6 @@ function startListening(onReady) {
       analysesReady = true;
       emit();
     }, (err) => console.error('analyses', err)),
-    onSnapshot(aiSettingsDoc, (snap) => {
-      aiSettings = snap.exists() ? snap.data() : {};
-      emit();
-    }, (err) => console.error('ai settings', err)),
   );
 }
 
@@ -227,12 +222,6 @@ export const store = {
     analyses.set(month, next);
     emit();
     return write(setDoc(doc(analysesCol, month), next));
-  },
-  aiKey: () => aiSettings.apiKey || '',
-  setAiKey(key) {
-    aiSettings = { ...aiSettings, apiKey: String(key || '').trim(), updatedAt: new Date().toISOString() };
-    emit();
-    return write(setDoc(aiSettingsDoc, aiSettings));
   },
 
   // ---- 사진 (기록과 따로) ----

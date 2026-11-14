@@ -251,7 +251,7 @@ function refresh() {
   if (currentView === 'calendar') renderCalendar();
   if (currentView === 'photos') renderGallery();
   if (currentView === 'all') renderAll();
-  if (currentView === 'search') renderNotifyCheck(), renderAiKeyBox();
+  if (currentView === 'search') renderNotifyCheck();
 }
 
 // ---------------- 오늘 ----------------
@@ -1898,12 +1898,11 @@ function renderAnalysisView() {
   run.disabled = running || !entries.length;
   run.textContent = running ? '⏳ 분석하는 중…' : done ? '🔄 다시 분석 (업데이트)' : '✨ 분석하기';
   if (!entries.length) hint.textContent = '이 달에는 기록이 없어서 분석할 수 없어요.';
-  else if (running) hint.textContent = mine !== undefined ? 'AI가 기록을 읽고 있어요. 1~3분쯤 걸려요. 다른 화면에 가도 끝나면 알려 드려요.' : `${a.requestedBy || '가족'}${josaIga(a.requestedBy || '가족')} 분석을 의뢰했어요. 끝나면 알려 드려요.`;
-  else if (!store.aiKey()) hint.innerHTML = '처음 한 번 <b>설정 › AI 분석 키</b>를 넣어 주세요.';
+  else if (running) hint.textContent = mine !== undefined ? 'AI가 기록을 읽고 있어요. 1분쯤 걸려요. 다른 화면에 가도 끝나면 알려 드려요.' : `${a.requestedBy || '가족'}${josaIga(a.requestedBy || '가족')} 분석을 의뢰했어요. 끝나면 알려 드려요.`;
   else if (done) {
     const added = entries.filter((e) => (e.createdAt || '') > (a.requestedAt || '')).length;
     hint.textContent = added ? `분석한 뒤에 새 기록이 ${added}개 늘었어요. 업데이트하면 함께 분석해요.` : '기록을 더 쓰거나 고친 뒤에 다시 누르면 새로 분석해요.';
-  } else hint.textContent = `기록 ${entries.length}개로 이 달의 민한이를 분석해요 (한 번에 약 100~400원).`;
+  } else hint.textContent = `기록 ${entries.length}개로 이 달의 민한이를 분석해요 (무료).`;
 
   const box = $('#aiResult');
   if (mine !== undefined) {
@@ -1941,13 +1940,6 @@ function renderAnalysisView() {
 
 async function runAnalysis() {
   const month = aiMonth;
-  const key = store.aiKey();
-  if (!key) {
-    toast('설정에서 AI 분석 키를 먼저 넣어 주세요');
-    showView('search', { sub: true });
-    setTimeout(() => $('#aiKeyBox')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
-    return;
-  }
   if (!navigator.onLine) return toast('인터넷이 연결돼야 분석할 수 있어요');
   const today = todaySeoul();
   const entries = monthEntries(month);
@@ -1965,7 +1957,6 @@ async function runAnalysis() {
   let last = 0;
   try {
     const res = await analyzeMonth({
-      apiKey: key,
       month,
       entries,
       photos,
@@ -2036,34 +2027,6 @@ function renderAiEntry() {
     : fresh.length
       ? `💌 ${fresh[0].requestedBy || '가족'}${josaIga(fresh[0].requestedBy || '가족')} 의뢰한 ${fresh[0].label || monthLabel(fresh[0].month, todaySeoul())} 분석이 도착했어요`
       : '이 달의 민한이 마음·생각·발달을 따뜻하게 읽어 드려요';
-}
-
-/** 설정 › AI 분석 키 */
-function renderAiKeyBox() {
-  const box = $('#aiKeyBox');
-  const key = store.aiKey();
-  box.innerHTML = `
-    <p class="small">${key ? `✅ 키가 들어 있어요 <code>${esc(key.slice(0, 10))}…${esc(key.slice(-4))}</code> (두 폰이 함께 써요)` : '⚠️ 아직 키가 없어요'}</p>
-    <p class="muted small">월별 AI 분석은 Anthropic의 Claude AI를 써요. <b>console.anthropic.com</b>에서 가입 → 결제(크레딧 충전) → API Keys에서 키(sk-ant-…)를 만들어 넣어 주세요. 분석 한 번에 약 100~400원이 들어요. 키는 우리 가족 클라우드에만 저장돼요.</p>
-    <div class="check-btns">
-      <button class="btn small" data-k="set">🔑 ${key ? '키 바꾸기' : '키 넣기'}</button>
-      ${key ? '<button class="btn small" data-k="del">🗑️ 키 지우기</button>' : ''}
-    </div>`;
-  box.querySelector('[data-k=set]').onclick = () => {
-    const v = prompt('Anthropic API 키를 붙여 넣어 주세요 (sk-ant-로 시작해요)', '');
-    if (v == null) return;
-    if (!/^sk-ant-[\w-]{20,}$/.test(v.trim())) return toast('키 모양이 달라요. sk-ant- 로 시작하는 키를 넣어 주세요');
-    store.setAiKey(v.trim());
-    toast('AI 분석 키를 저장했어요 🧠');
-    renderAiKeyBox();
-  };
-  const del = box.querySelector('[data-k=del]');
-  if (del)
-    del.onclick = () => {
-      if (!confirm('AI 분석 키를 지울까요? (두 폰 모두에서 지워져요)')) return;
-      store.setAiKey('');
-      renderAiKeyBox();
-    };
 }
 
 /** 분석이 도착하면: 앱이 뒤에 있으면 폰 알림, 보고 있으면 화면에 알려 줌 */
