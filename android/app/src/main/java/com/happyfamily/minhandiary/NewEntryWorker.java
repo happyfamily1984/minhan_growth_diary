@@ -44,6 +44,7 @@ public class NewEntryWorker extends Worker {
     static final String CHANNEL = "new_entries";
     static final int NOTIF_ID = 1001;
     static final String EXTRA_OPEN = "openEntry";
+    static final int AI_NOTIF_ID = 1002; // 월별 AI 분석 도착
 
     // www/firebase-config.js 와 같은 값
     private static final String API_KEY = "AIzaSyASJgfGdlxzfGPm9mmwqMtu_c7NF0iiwfk";
@@ -135,6 +136,7 @@ public class NewEntryWorker extends Worker {
                 .putString("lastResult", "확인 완료 · 새 글 " + added + "개 (찾은 글 " + rows.length() + "개)")
                 .remove("lastError").apply();
             if (added > 0) show(ctx, pending);
+            checkAnalyses(ctx, p, url, idToken, me);
             return Result.success();
         } catch (Exception e) {
             p.edit().putString("lastError", now() + " " + e).apply();
@@ -175,6 +177,75 @@ public class NewEntryWorker extends Worker {
         } catch (SecurityException ignored) {
             // 알림 권한을 허용하지 않은 경우
         }
+    }
+
+    /** 다른 폰에서 의뢰한 월별 AI 분석이 끝났으면 알림 */
+    private static void checkAnalyses(Context ctx, SharedPreferences p, String url, String idToken, String me) {
+        try {
+            String since = max(p.getString("aiSince", ""), max(p.getString("aiSeen", ""), p.getString("aiNotified", "")));
+            JSONObject q = new JSONObject()
+                .put("structuredQuery", new JSONObject()
+                    .put("from", new JSONArray().put(new JSONObject().put("collectionId", "analyses")))
+                    .put("where", new JSONObject().put("fieldFilter", new JSONObject()
+                        .put("field", new JSONObject().put("fieldPath", "doneAt"))
+                        .put("op", "GREATER_THAN")
+                        .put("value", new JSONObject().put("stringValue", since))))
+                    .put("orderBy", new JSONArray().put(new JSONObject()
+                        .put("field", new JSONObject().put("fieldPath", "doneAt")).put("direction", "DESCENDING")))
+                    .put("limit", 10));
+            JSONArray rows = new JSONArray(http(url, "application/json", q.toString(), idToken));
+            String last = p.getString("aiNotified", "");
+            JSONObject newest = null;
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject doc = rows.getJSONObject(i).optJSONObject("document");
+                if (doc == null) continue;
+                JSONObject f = doc.getJSONObject("fields");
+                String doneAt = str(f, "doneAt");
+                last = max(last, doneAt);
+                if (!"done".equals(str(f, "status"))) continue;
+                if (str(f, "requestedBy").equals(me)) continue; // 내가 의뢰한 건 그 폰 화면이 알려 줌
+                if (newest == null) newest = f;
+            }
+            p.edit().putString("aiNotified", last).apply();
+            if (newest != null) {
+                String who = str(newest, "requestedBy");
+                if (who.isEmpty()) who = "가족";
+                String label = str(newest, "label");
+                if (label.isEmpty()) label = str(newest, "month");
+                showAnalysis(ctx, str(newest, "month"), who + josa(who) + " 의뢰한 " + label + " AI분석 내용 도착했어요",
+                    "눌러서 민한이의 이달 분석을 볼 수 있어요");
+            }
+        } catch (Exception e) {
+            p.edit().putString("lastError", now() + " AI분석 확인: " + e).apply();
+        }
+    }
+
+    static String josa(String w) {
+        if (w.isEmpty()) return "가";
+        char c = w.charAt(w.length() - 1);
+        if (c < 0xAC00 || c > 0xD7A3) return "가";
+        return (c - 0xAC00) % 28 == 0 ? "가" : "이";
+    }
+
+    /** 월별 AI 분석 도착 알림. 누르면 그 달 분석 화면으로 */
+    static void showAnalysis(Context ctx, String month, String title, String body) {
+        ensureChannel(ctx);
+        Intent open = new Intent(ctx, MainActivity.class)
+            .putExtra(EXTRA_OPEN, "ai:" + month)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent pi = PendingIntent.getActivity(ctx, 1, open,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_note)
+            .setColor(0xFF7C5CE0)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pi)
+            .setAutoCancel(true);
+        try {
+            NotificationManagerCompat.from(ctx).notify(AI_NOTIF_ID, b.build());
+        } catch (SecurityException ignored) {}
     }
 
     static String now() {

@@ -55,6 +55,7 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         // 앱을 열면 쌓인 알림은 지운다 (앱 안에서 N 으로 보임)
         androidx.core.app.NotificationManagerCompat.from(this).cancel(NewEntryWorker.NOTIF_ID);
+        androidx.core.app.NotificationManagerCompat.from(this).cancel(NewEntryWorker.AI_NOTIF_ID);
         getSharedPreferences(NewEntryWorker.PREFS, MODE_PRIVATE).edit().remove("pending").apply();
     }
 
@@ -134,6 +135,7 @@ public class MainActivity extends BridgeActivity {
                 if (!o.optString("refreshToken").isEmpty()) e.putString("refreshToken", o.optString("refreshToken"));
                 e.putString("author", o.optString("author"));
                 if (!p.contains("since")) e.putString("since", o.optString("since")); // 처음 설정한 때부터만 알림
+                if (!p.contains("aiSince")) e.putString("aiSince", o.optString("since"));
                 e.apply();
             } catch (Exception ignored) {}
         }
@@ -143,6 +145,26 @@ public class MainActivity extends BridgeActivity {
         public void seenUpTo(String iso) {
             android.content.SharedPreferences p = ctx.getSharedPreferences(NewEntryWorker.PREFS, android.content.Context.MODE_PRIVATE);
             if (iso != null && iso.compareTo(p.getString("appSeen", "")) > 0) p.edit().putString("appSeen", iso).apply();
+        }
+
+        /** 앱에서 이미 본(화면에 알려 준) AI 분석은 다시 알리지 않는다 */
+        @JavascriptInterface
+        public void aiSeenUpTo(String iso) {
+            android.content.SharedPreferences p = ctx.getSharedPreferences(NewEntryWorker.PREFS, android.content.Context.MODE_PRIVATE);
+            if (iso != null && iso.compareTo(p.getString("aiSeen", "")) > 0) p.edit().putString("aiSeen", iso).apply();
+        }
+
+        /** 앱이 뒤에 있을 때 AI 분석이 끝나면 바로 알림 */
+        @JavascriptInterface
+        public void analysisDone(String json) {
+            try {
+                JSONObject o = new JSONObject(json);
+                NewEntryWorker.showAnalysis(ctx, o.getString("month"), o.optString("title"), o.optString("body"));
+                android.content.SharedPreferences p = ctx.getSharedPreferences(NewEntryWorker.PREFS, android.content.Context.MODE_PRIVATE);
+                p.edit().putString("aiSeen", new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US) {{
+                    setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+                }}.format(new java.util.Date())).apply();
+            } catch (Exception ignored) {}
         }
 
         @JavascriptInterface

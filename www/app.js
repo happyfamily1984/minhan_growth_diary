@@ -7,6 +7,7 @@ import { parseText, linesToBubbles, parseDateLine } from './parse.js';
 import { binarize } from './ocr-prep.js';
 import { bubblesFromOcr, findBubbles, datePillCandidates, pillCanvas, gapRegions, findPillsByColor } from './bubbles.js';
 import { kv } from './kv.js';
+import { analyzeMonth, monthAge, monthLabel, summaryOf, renderAnalysis } from './ai.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -131,7 +132,7 @@ function renderList(container, list, opts = {}) {
 }
 
 // ---------------- 화면 전환 (안드로이드 뒤로가기 지원) ----------------
-const VIEWS = ['home', 'calendar', 'photos', 'import', 'search', 'all'];
+const VIEWS = ['home', 'calendar', 'photos', 'import', 'search', 'all', 'analysis'];
 let currentView = 'home';
 // 폰 앱: 안드로이드 뒤로가기를 직접 처리한다 (메뉴 안의 행동 → 메뉴 첫 화면 → 오늘 → 종료할까요?)
 const AppPlugin = window.Capacitor?.Plugins?.App;
@@ -151,7 +152,7 @@ function showView(name, { push = true, sub = false } = {}) {
   currentView = name;
   for (const s of $$('.view')) s.hidden = s.id !== `view-${name}`;
   for (const b of $$('.bottom [data-view]')) b.classList.toggle('active', b.dataset.view === name);
-  $('#bannerImg').src = `img/banner-${{ all: 'search', search: 'search' }[name] || name}.webp`;
+  $('#bannerImg').src = `img/banner-${{ all: 'search', search: 'search', analysis: 'home' }[name] || name}.webp`;
   requestAnimationFrame(() => growAll());
   const left = $('#topLeftBtn');
   left.textContent = name === 'home' ? '🔍' : '🏠';
@@ -245,11 +246,12 @@ for (const d of $$('dialog')) {
 }
 
 function refresh() {
-  if (currentView === 'home') renderHome();
+  if (currentView === 'home') renderHome(), renderAiEntry();
+  if (currentView === 'analysis') renderAnalysisView();
   if (currentView === 'calendar') renderCalendar();
   if (currentView === 'photos') renderGallery();
   if (currentView === 'all') renderAll();
-  if (currentView === 'search') renderNotifyCheck();
+  if (currentView === 'search') renderNotifyCheck(), renderAiKeyBox();
 }
 
 // ---------------- 오늘 ----------------
@@ -539,7 +541,9 @@ $('#calNext').addEventListener('click', () => {
 // 년·월 고르기: 태어난 해(2016년, 0살)부터 올해까지
 const monthPicker = $('#monthPicker');
 let pickYear = null;
+let pickerMode = 'cal'; // 'cal' 달력 · 'ai' 월별 분석
 $('#calTitleBtn').addEventListener('click', () => {
+  pickerMode = 'cal';
   pickYear = Number(calMonth.slice(0, 4));
   renderMonthPicker();
   openDialog(monthPicker);
@@ -568,10 +572,16 @@ function renderMonthPicker() {
     const ym = `${pickYear}-${String(m).padStart(2, '0')}`;
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'month-btn' + (ym === calMonth ? ' on' : '');
+    const cur = pickerMode === 'ai' ? aiMonth : calMonth;
+    b.className = 'month-btn' + (ym === cur ? ' on' : '') + (pickerMode === 'ai' && store.analysis(ym)?.text ? ' has' : '');
     b.textContent = `${m}월`;
     b.disabled = ym < BIRTH_DATE.slice(0, 7) || ym > today.slice(0, 7);
     b.addEventListener('click', () => {
+      if (pickerMode === 'ai') {
+        aiMonth = ym;
+        closeDialog(monthPicker);
+        return renderAnalysisView();
+      }
       // 그 달에 오늘이 있으면 오늘, 태어난 달이면 생일, 아니면 1일을 고른다
       const d = ym === today.slice(0, 7) ? today : ym === BIRTH_DATE.slice(0, 7) ? BIRTH_DATE : `${ym}-01`;
       snapCal();
@@ -584,6 +594,11 @@ function renderMonthPicker() {
   $('#pickTitle').textContent = `${pickYear}년`;
 }
 $('#pickToday').addEventListener('click', () => {
+  if (pickerMode === 'ai') {
+    aiMonth = todaySeoul().slice(0, 7);
+    closeDialog(monthPicker);
+    return renderAnalysisView();
+  }
   snapCal();
   selectDate(todaySeoul());
   closeDialog(monthPicker);
@@ -1829,6 +1844,251 @@ function renderAll() {
 
 $('#goImport').addEventListener('click', () => showView('import', { sub: true }));
 
+// ---------------- 월별 AI 성장 분석 ----------------
+// 분석 결과는 클라우드(analyses/YYYY-MM)에 저장돼서 두 폰이 함께 보고, 다시 누르면 새 기록까지 넣어 업데이트한다
+const aiStatus = { running: new Map() }; // 이 폰에서 분석 중인 달 → 지금까지 쓴 글
+let aiMonth = todaySeoul().slice(0, 7);
+const josaIga = (w) => (/[가-힣]$/.test(w) && (w.charCodeAt(w.length - 1) - 0xac00) % 28 ? '이' : '가');
+const AI_SEEN_KEY = 'minhan-ai-seen';
+const aiSeen = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(AI_SEEN_KEY) || '{}');
+  } catch {
+    return {};
+  }
+})();
+function markAiSeen(a) {
+  if (!a?.doneAt || aiSeen[a.month] >= a.doneAt) return;
+  aiSeen[a.month] = a.doneAt;
+  try {
+    localStorage.setItem(AI_SEEN_KEY, JSON.stringify(aiSeen));
+  } catch {}
+}
+const isNewAi = (a) => a.status === 'done' && a.doneAt && !(aiSeen[a.month] >= a.doneAt);
+const STALE_MS = 15 * 60 * 1000; // 이만큼 지나도 '분석 중'이면 멈춘 것 (폰이 꺼졌거나 앱이 닫힘)
+const isRunning = (a) => a?.status === 'running' && Date.now() - Date.parse(a.requestedAt || 0) < STALE_MS;
+const monthEntries = (month) => store.all().filter((e) => e.date.startsWith(month)).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+const koDateTime = (iso) => {
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+};
+
+function renderAnalysisView() {
+  const today = todaySeoul();
+  const thisMonth = today.slice(0, 7);
+  if (aiMonth > thisMonth) aiMonth = thisMonth;
+  if (aiMonth < BIRTH_DATE.slice(0, 7)) aiMonth = BIRTH_DATE.slice(0, 7);
+  const [y, m] = aiMonth.split('-').map(Number);
+  const ag = monthAge(aiMonth, today);
+  $('#aiTitle').textContent = `${y}년 ${m}월`;
+  $('#aiPrev').disabled = aiMonth <= BIRTH_DATE.slice(0, 7);
+  $('#aiNext').disabled = aiMonth >= thisMonth;
+  const entries = monthEntries(aiMonth);
+  const a = store.analysis(aiMonth);
+  const mine = aiStatus.running.get(aiMonth);
+  const running = mine !== undefined || isRunning(a);
+  const counts = { say: 0, funny: 0, did: 0 };
+  for (const e of entries) counts[e.kind] = (counts[e.kind] || 0) + 1;
+  $('#aiMeta').innerHTML = `<span class="pill pill-lilac small-pill">💗 만 ${ag.years}세 ${ag.months}개월</span>
+    <span class="ai-counts">기록 <b>${entries.length}</b>개 · 💬 ${counts.say} · 😂 ${counts.funny} · 🌱 ${counts.did}</span>`;
+
+  const run = $('#aiRun');
+  const hint = $('#aiHint');
+  const done = a?.status === 'done' || a?.text;
+  run.disabled = running || !entries.length;
+  run.textContent = running ? '⏳ 분석하는 중…' : done ? '🔄 다시 분석 (업데이트)' : '✨ 분석하기';
+  if (!entries.length) hint.textContent = '이 달에는 기록이 없어서 분석할 수 없어요.';
+  else if (running) hint.textContent = mine !== undefined ? 'AI가 기록을 읽고 있어요. 1~3분쯤 걸려요. 다른 화면에 가도 끝나면 알려 드려요.' : `${a.requestedBy || '가족'}${josaIga(a.requestedBy || '가족')} 분석을 의뢰했어요. 끝나면 알려 드려요.`;
+  else if (!store.aiKey()) hint.innerHTML = '처음 한 번 <b>설정 › AI 분석 키</b>를 넣어 주세요.';
+  else if (done) {
+    const added = entries.filter((e) => (e.createdAt || '') > (a.requestedAt || '')).length;
+    hint.textContent = added ? `분석한 뒤에 새 기록이 ${added}개 늘었어요. 업데이트하면 함께 분석해요.` : '기록을 더 쓰거나 고친 뒤에 다시 누르면 새로 분석해요.';
+  } else hint.textContent = `기록 ${entries.length}개로 이 달의 민한이를 분석해요 (한 번에 약 100~400원).`;
+
+  const box = $('#aiResult');
+  if (mine !== undefined) {
+    box.hidden = false;
+    box.innerHTML = `<div class="ai-writing">✍️ AI가 쓰는 중…</div>${mine ? renderAnalysis(mine, esc) : '<p class="muted">기록을 꼼꼼히 읽고 있어요…</p>'}`;
+  } else if (a?.text) {
+    box.hidden = false;
+    const err = a.status === 'error' ? `<p class="ai-err">❗ 지난 업데이트는 실패했어요: ${esc(a.error || '')}</p>` : '';
+    box.innerHTML = `${err}<div class="ai-body">${renderAnalysis(a.text, esc)}</div>
+      <div class="ai-foot">${esc(a.requestedBy || '')}${a.requestedBy ? josaIga(a.requestedBy) + ' 의뢰 · ' : ''}${esc(koDateTime(a.doneAt))} 분석 · 기록 ${a.entryCount ?? '?'}개 기준${a.version > 1 ? ` · ${a.version}번째 분석` : ''}</div>`;
+    markAiSeen(a);
+  } else if (a?.status === 'error') {
+    box.hidden = false;
+    box.innerHTML = `<p class="ai-err">❗ 분석하지 못했어요: ${esc(a.error || '')}</p>`;
+  } else box.hidden = true;
+
+  // 분석해 둔 달 모아 보기
+  const list = store.analyses().filter((x) => x.text);
+  const wrap = $('#aiDoneList');
+  if (!list.length) {
+    wrap.innerHTML = '';
+  } else {
+    wrap.innerHTML = `<h2 class="section-title"><span>📚</span>분석해 둔 달</h2><div class="chips"></div>`;
+    const chips = $('.chips', wrap);
+    for (const x of list) {
+      const b = chip(`${isNewAi(x) ? '<span class="new-dot">N</span>' : ''}${esc(monthLabel(x.month, today))} <small>${x.month.slice(0, 4)}</small>`, x.month === aiMonth, () => {
+        aiMonth = x.month;
+        renderAnalysisView();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+      chips.append(b);
+    }
+  }
+}
+
+async function runAnalysis() {
+  const month = aiMonth;
+  const key = store.aiKey();
+  if (!key) {
+    toast('설정에서 AI 분석 키를 먼저 넣어 주세요');
+    showView('search', { sub: true });
+    setTimeout(() => $('#aiKeyBox')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+    return;
+  }
+  if (!navigator.onLine) return toast('인터넷이 연결돼야 분석할 수 있어요');
+  const today = todaySeoul();
+  const entries = monthEntries(month);
+  if (!entries.length) return;
+  const photos = store.photos().filter((p) => p.date.startsWith(month));
+  const before = store.analysis(month);
+  // 바로 전에 분석한 달의 요약을 함께 넣어서 이어지는 성장을 보게 한다
+  const prevA = store.analyses().find((x) => x.month < month && x.text);
+  const prev = prevA ? { month: monthLabel(prevA.month, today), summary: summaryOf(prevA.text) } : null;
+  const requestedAt = new Date().toISOString();
+  const who = myName() || '가족';
+  aiStatus.running.set(month, '');
+  store.saveAnalysis(month, { status: 'running', requestedBy: who, requestedAt, error: '' });
+  renderAnalysisView();
+  let last = 0;
+  try {
+    const res = await analyzeMonth({
+      apiKey: key,
+      month,
+      entries,
+      photos,
+      today,
+      prev,
+      onText: (t) => {
+        aiStatus.running.set(month, t);
+        if (currentView === 'analysis' && aiMonth === month && Date.now() - last > 250) {
+          last = Date.now();
+          renderAnalysisView();
+        }
+      },
+    });
+    const history = [...(before?.history || [])];
+    if (before?.text) history.unshift({ text: before.text, doneAt: before.doneAt, requestedBy: before.requestedBy || '' });
+    aiStatus.running.delete(month);
+    await store.saveAnalysis(month, {
+      status: 'done',
+      text: res.text,
+      model: res.model,
+      label: monthLabel(month, today),
+      entryCount: entries.length,
+      requestedBy: who,
+      requestedAt,
+      doneAt: new Date().toISOString(),
+      version: (before?.version || 0) + 1,
+      history: history.slice(0, 3), // 예전 분석은 3개까지 남겨 둔다
+      error: '',
+    });
+  } catch (err) {
+    aiStatus.running.delete(month);
+    // 예전 분석이 있으면 그대로 두고 실패만 표시
+    store.saveAnalysis(month, { status: before?.text ? 'done' : 'error', error: err.message, requestedBy: before?.requestedBy || who, requestedAt: before?.requestedAt || requestedAt });
+    toast('❗ ' + err.message);
+  }
+  if (currentView === 'analysis') renderAnalysisView();
+  else refresh();
+}
+
+$('#aiRun').addEventListener('click', runAnalysis);
+$('#aiPrev').addEventListener('click', () => {
+  aiMonth = shiftMonth(aiMonth, -1);
+  renderAnalysisView();
+});
+$('#aiNext').addEventListener('click', () => {
+  aiMonth = shiftMonth(aiMonth, 1);
+  renderAnalysisView();
+});
+$('#aiTitleBtn').addEventListener('click', () => {
+  pickerMode = 'ai';
+  pickYear = Number(aiMonth.slice(0, 4));
+  renderMonthPicker();
+  openDialog(monthPicker);
+});
+$('#goAnalysis').addEventListener('click', () => {
+  // 새로 도착한 분석이 있으면 그 달부터, 아니면 기록이 있는 가장 최근 달
+  const fresh = store.analyses().find(isNewAi);
+  const latest = store.all().reduce((m, e) => (e.date > m ? e.date : m), '').slice(0, 7);
+  aiMonth = fresh?.month || latest || todaySeoul().slice(0, 7);
+  showView('analysis', { sub: true });
+});
+function renderAiEntry() {
+  const fresh = store.analyses().filter(isNewAi);
+  $('#aiEntryDot').hidden = !fresh.length;
+  const busy = store.analyses().find((x) => isRunning(x) || aiStatus.running.has(x.month));
+  $('#aiEntrySub').textContent = busy
+    ? `⏳ ${monthLabel(busy.month, todaySeoul())} 분석하는 중…`
+    : fresh.length
+      ? `💌 ${fresh[0].requestedBy || '가족'}${josaIga(fresh[0].requestedBy || '가족')} 의뢰한 ${fresh[0].label || monthLabel(fresh[0].month, todaySeoul())} 분석이 도착했어요`
+      : '이 달의 민한이 마음·생각·발달을 따뜻하게 읽어 드려요';
+}
+
+/** 설정 › AI 분석 키 */
+function renderAiKeyBox() {
+  const box = $('#aiKeyBox');
+  const key = store.aiKey();
+  box.innerHTML = `
+    <p class="small">${key ? `✅ 키가 들어 있어요 <code>${esc(key.slice(0, 10))}…${esc(key.slice(-4))}</code> (두 폰이 함께 써요)` : '⚠️ 아직 키가 없어요'}</p>
+    <p class="muted small">월별 AI 분석은 Anthropic의 Claude AI를 써요. <b>console.anthropic.com</b>에서 가입 → 결제(크레딧 충전) → API Keys에서 키(sk-ant-…)를 만들어 넣어 주세요. 분석 한 번에 약 100~400원이 들어요. 키는 우리 가족 클라우드에만 저장돼요.</p>
+    <div class="check-btns">
+      <button class="btn small" data-k="set">🔑 ${key ? '키 바꾸기' : '키 넣기'}</button>
+      ${key ? '<button class="btn small" data-k="del">🗑️ 키 지우기</button>' : ''}
+    </div>`;
+  box.querySelector('[data-k=set]').onclick = () => {
+    const v = prompt('Anthropic API 키를 붙여 넣어 주세요 (sk-ant-로 시작해요)', '');
+    if (v == null) return;
+    if (!/^sk-ant-[\w-]{20,}$/.test(v.trim())) return toast('키 모양이 달라요. sk-ant- 로 시작하는 키를 넣어 주세요');
+    store.setAiKey(v.trim());
+    toast('AI 분석 키를 저장했어요 🧠');
+    renderAiKeyBox();
+  };
+  const del = box.querySelector('[data-k=del]');
+  if (del)
+    del.onclick = () => {
+      if (!confirm('AI 분석 키를 지울까요? (두 폰 모두에서 지워져요)')) return;
+      store.setAiKey('');
+      renderAiKeyBox();
+    };
+}
+
+/** 분석이 도착하면: 앱이 뒤에 있으면 폰 알림, 보고 있으면 화면에 알려 줌 */
+let knownAi = null;
+function watchAiForNotify() {
+  const list = store.analyses().filter((a) => a.status === 'done' && a.doneAt);
+  if (!knownAi) {
+    if (!store.analysesReady()) return; // 처음 불러온 분석은 새로 도착한 게 아님
+    knownAi = new Map(list.map((a) => [a.month, a.doneAt]));
+    return;
+  }
+  const fresh = list.filter((a) => (knownAi.get(a.month) || '') < a.doneAt);
+  fresh.forEach((a) => knownAi.set(a.month, a.doneAt));
+  for (const a of fresh) {
+    const label = a.label || monthLabel(a.month, todaySeoul());
+    const who = a.requestedBy || '가족';
+    const title = `${who}${josaIga(who)} 의뢰한 ${label} AI분석 내용 도착했어요`;
+    if (document.hidden && notify?.analysisDone) {
+      notify.analysisDone(JSON.stringify({ month: a.month, title, body: summaryOf(a.text).slice(0, 140) }));
+    } else if (!(currentView === 'analysis' && aiMonth === a.month)) {
+      toast(`🧠 ${title}`);
+    }
+  }
+}
+
 // ---------------- 폰 알림 (안드로이드) ----------------
 // 앱이 꺼져 있어도 15분마다 새 글을 확인해서 알림을 띄운다 (MainActivity / NewEntryWorker)
 const notify = window.AndroidNotify;
@@ -1845,6 +2105,8 @@ function reportSeen() {
   if (!notify || !store.ready()) return;
   const last = store.all().reduce((m, e) => (e.createdAt > m ? e.createdAt : m), '');
   if (last) notify.seenUpTo(last);
+  const lastAi = store.analyses().reduce((m, a) => (a.doneAt > m ? a.doneAt : m), '');
+  if (lastAi && notify.aiSeenUpTo) notify.aiSeenUpTo(lastAi);
 }
 let pendingOpen = null;
 function takeOpen() {
@@ -1857,6 +2119,11 @@ function takeOpen() {
 /** 알림을 누르면: 그 글이 있는 날짜의 달력으로 가서 그 글을 반짝 보여 준다 */
 function openPending() {
   if (!pendingOpen || !store.ready()) return;
+  if (pendingOpen.startsWith('ai:')) {
+    aiMonth = pendingOpen.slice(3);
+    pendingOpen = null;
+    return showView('analysis', { sub: currentView !== 'analysis' });
+  }
   const e = store.all().find((x) => x.id === pendingOpen);
   if (!e) return;
   pendingOpen = null;
@@ -2053,6 +2320,7 @@ let refreshTimer;
 store.onChange(() => {
   showSync();
   watchNewForNotify();
+  watchAiForNotify();
   openPending();
   if (!document.hidden) reportSeen();
   clearTimeout(refreshTimer);

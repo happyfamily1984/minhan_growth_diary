@@ -34,6 +34,8 @@ const base = `families/${FAMILY_ID}`;
 const entriesCol = collection(fs, `${base}/entries`);
 const photosCol = collection(fs, `${base}/photos`);
 const peopleCol = collection(fs, `${base}/people`); // 사주보기에 추가한 가족
+const analysesCol = collection(fs, `${base}/analyses`); // 월별 AI 분석 (문서 이름 = YYYY-MM)
+const aiSettingsDoc = doc(fs, `${base}/settings/ai`); // AI 키 (가족 계정만 읽을 수 있음)
 const photoDataDoc = (id) => doc(fs, `${base}/photoData/${id}`);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -44,6 +46,9 @@ const sorted = (list) => [...list].sort((a, b) => sortKey(a).localeCompare(sortK
 let entries = new Map();
 let photos = new Map();
 let people = new Map();
+let analyses = new Map();
+let analysesReady = false;
+let aiSettings = {};
 let ready = { entries: false, photos: false };
 const listeners = new Set();
 let syncState = { offline: false, pending: false };
@@ -74,6 +79,15 @@ function startListening(onReady) {
       people = new Map(snap.docs.map((d) => [d.id, d.data()]));
       emit();
     }, (err) => console.error('people', err)),
+    onSnapshot(analysesCol, (snap) => {
+      analyses = new Map(snap.docs.map((d) => [d.id, d.data()]));
+      analysesReady = true;
+      emit();
+    }, (err) => console.error('analyses', err)),
+    onSnapshot(aiSettingsDoc, (snap) => {
+      aiSettings = snap.exists() ? snap.data() : {};
+      emit();
+    }, (err) => console.error('ai settings', err)),
   );
 }
 
@@ -106,6 +120,7 @@ export const auth$ = {
       unsubs.forEach((u) => u());
       unsubs = [];
       ready = { entries: false, photos: false };
+      analysesReady = false;
       if (user) startListening(() => cb(true));
       else cb(false);
     });
@@ -200,6 +215,24 @@ export const store = {
     people.delete(id);
     write(deleteDoc(doc(peopleCol, id)));
     emit();
+  },
+
+  // ---- 월별 AI 분석 ----
+  analyses: () => [...analyses.values()].sort((a, b) => b.month.localeCompare(a.month)),
+  analysesReady: () => analysesReady,
+  analysis: (month) => analyses.get(month) || null,
+  /** 그 달 분석 문서에 덮어쓰기 (없던 칸만 바뀜) */
+  saveAnalysis(month, patch) {
+    const next = { ...(analyses.get(month) || {}), ...patch, month, updatedAt: new Date().toISOString() };
+    analyses.set(month, next);
+    emit();
+    return write(setDoc(doc(analysesCol, month), next));
+  },
+  aiKey: () => aiSettings.apiKey || '',
+  setAiKey(key) {
+    aiSettings = { ...aiSettings, apiKey: String(key || '').trim(), updatedAt: new Date().toISOString() };
+    emit();
+    return write(setDoc(aiSettingsDoc, aiSettings));
   },
 
   // ---- 사진 (기록과 따로) ----

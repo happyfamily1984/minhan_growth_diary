@@ -75,6 +75,13 @@
           <button class="btn small add-person" id="addPerson">➕ 가족 추가</button>
         </div>
 
+        <button class="card ai-entry" id="goAnalysis">
+          <span class="ai-entry-icon">🧠</span>
+          <span class="ai-entry-text"><b>월별 AI 성장 분석</b><small id="aiEntrySub">이 달의 민한이 마음·생각·발달을 따뜻하게 읽어 드려요</small></span>
+          <span class="new-dot" id="aiEntryDot" hidden>N</span>
+          <span class="ai-entry-go">›</span>
+        </button>
+
         <div id="freshWrap" hidden>
           <h2 class="section-title"><span class="new-dot">N</span>새로 올라온 내용</h2>
           <div id="freshList" class="entries"></div>
@@ -158,6 +165,23 @@
         <div class="all-list" id="allList"></div>
       </section>
 
+      <!-- 월별 AI 분석 -->
+      <section id="view-analysis" class="view" hidden>
+        <div class="card ai-head">
+          <h2 class="section-title"><span>🧠</span>월별 AI 성장 분석</h2>
+          <div class="cal-head">
+            <button class="circle-btn" id="aiPrev" aria-label="이전 달">‹</button>
+            <button class="pill pill-cream cal-title" id="aiTitleBtn"><span>🗓️</span><span id="aiTitle"></span></button>
+            <button class="circle-btn" id="aiNext" aria-label="다음 달">›</button>
+          </div>
+          <div class="ai-meta" id="aiMeta"></div>
+          <button class="btn primary big" id="aiRun">✨ 분석하기</button>
+          <p class="muted small" id="aiHint"></p>
+        </div>
+        <div class="card ai-result" id="aiResult" hidden></div>
+        <div class="ai-done-list" id="aiDoneList"></div>
+      </section>
+
       <!-- 찾기 / 설정 -->
       <section id="view-search" class="view" hidden>
         <div class="card search-card">
@@ -169,6 +193,10 @@
           <div class="notify-card">
             <h3>🔔 알림 점검</h3>
             <div id="notifyCheck"></div>
+          </div>
+          <div class="notify-card">
+            <h3>🧠 AI 분석 키</h3>
+            <div id="aiKeyBox"></div>
           </div>
           <div class="stack-btns">
             <button class="btn primary big" id="goImport">📥 텔레그램 가져오기</button>

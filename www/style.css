@@ -679,3 +679,31 @@ mark { background: #ffe58a; border-radius: 3px; padding: 0 1px; }
 .time-row .unknown { display: flex; align-items: center; gap: 4px; font-weight: 400; white-space: nowrap; }
 .pillar.unknown { opacity: 0.5; }
 #personForm input[type=text], #personForm input[type=date], #personForm input[type=time] { border: 1.5px solid var(--line); background: var(--cream); border-radius: 12px; padding: 10px 12px; font-size: 1rem; }
+
+/* ---------- 월별 AI 성장 분석 ---------- */
+.ai-entry { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; cursor: pointer; font: inherit; color: inherit; background: linear-gradient(135deg, #f3edff, #fff7ec); }
+.ai-entry-icon { font-size: 2rem; }
+.ai-entry-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ai-entry-text b { font-family: 'Jua', sans-serif; font-weight: 400; font-size: 1.15rem; color: #7c5ce0; }
+.ai-entry-text small { color: #6b6378; font-size: 0.85rem; overflow-wrap: anywhere; }
+.ai-entry-go { font-size: 1.6rem; color: #b9a8ee; }
+.ai-head { display: flex; flex-direction: column; gap: 12px; }
+.ai-head .section-title { margin: 0; }
+.ai-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: center; }
+.ai-counts { font-size: 0.9rem; color: #6b6378; }
+.ai-head #aiHint { margin: 0; text-align: center; }
+.ai-result { line-height: 1.7; overflow-wrap: anywhere; }
+.ai-result h3 { font-family: 'Jua', sans-serif; font-weight: 400; color: #7c5ce0; font-size: 1.12rem; margin: 18px 0 6px; }
+.ai-result h3:first-child { margin-top: 0; }
+.ai-result p { margin: 0 0 8px; }
+.ai-result ul { margin: 0 0 8px; padding-left: 1.2em; }
+.ai-result li { margin: 2px 0; }
+.ai-writing { font-size: 0.9rem; color: #7c5ce0; margin-bottom: 8px; animation: aiPulse 1.4s ease-in-out infinite; }
+@keyframes aiPulse { 50% { opacity: 0.4; } }
+.ai-foot { margin-top: 14px; padding-top: 10px; border-top: 1px dashed #e4dcf5; font-size: 0.78rem; color: #9a92a8; text-align: right; }
+.ai-err { color: #d6453d; font-size: 0.9rem; }
+.ai-done-list .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-done-list .chip small { color: #9a92a8; font-size: 0.72em; }
+.ai-done-list .chip .new-dot { margin-right: 4px; }
+.month-btn.has::after { content: '🧠'; font-size: 0.7em; margin-left: 2px; }
+#aiKeyBox code { font-size: 0.8em; background: #f3edff; padding: 1px 4px; border-radius: 4px; }
