@@ -6,7 +6,7 @@ import { firebaseApp } from './store.js';
 import { age, BIRTH_DATE } from './shared.js';
 
 // 앞에서부터 써 보고, 없어진 모델이면 다음 것으로
-const MODELS = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+const MODELS = ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.5-flash'];
 const KIND_KO = { say: '한 말', funny: '웃긴 말', did: '한 일' };
 
 const SYSTEM = `당신은 아동발달과 아동심리를 깊이 공부한 따뜻한 전문가이자, 한 가족의 성장일기를 함께 읽는 다정한 조력자입니다.
@@ -81,7 +81,7 @@ function friendlyError(err) {
   if (/SAFETY|blocked/i.test(msg)) return 'AI가 이번 분석을 하지 못했어요. 다시 한 번 눌러 주세요';
   return 'AI 분석 중 문제가 생겼어요: ' + msg.slice(0, 160);
 }
-const isModelGone = (err) => /\b404\b|not found|is not supported|NOT_FOUND/i.test(String(err?.message || ''));
+const isModelGone = (err) => /\b404\b|not found|is not supported|no longer available|NOT_FOUND/i.test(String(err?.message || ''));
 
 /** 분석하기. onText(지금까지 쓴 글) 로 쓰는 중인 글을 보여 준다 */
 export async function analyzeMonth({ month, entries, photos, today, prev, onText }) {
@@ -92,7 +92,7 @@ export async function analyzeMonth({ month, entries, photos, today, prev, onText
     const model = getGenerativeModel(ai, {
       model: name,
       systemInstruction: SYSTEM,
-      generationConfig: { maxOutputTokens: 8192, temperature: 0.8 },
+      generationConfig: { maxOutputTokens: 16384, temperature: 0.8 },
     });
     let text = '';
     try {
@@ -130,8 +130,8 @@ export function renderAnalysis(text, esc) {
   };
   for (const raw of String(text).split('\n')) {
     const line = raw.trim();
-    if (!line) {
-      flush();
+    if (!line || /^([-*_])\1{2,}$/.test(line)) {
+      flush(); // 빈 줄 · 구분선(---)
       continue;
     }
     if (/^#{1,4} /.test(line)) {
