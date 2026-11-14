@@ -246,7 +246,7 @@ for (const d of $$('dialog')) {
 }
 
 function refresh() {
-  if (currentView === 'home') renderHome(), renderAiEntry();
+  if (currentView === 'home') renderHome();
   if (currentView === 'analysis') renderAnalysisView();
   if (currentView === 'calendar') renderCalendar();
   if (currentView === 'photos') renderGallery();
@@ -612,6 +612,7 @@ async function renderCalendar() {
   const [y, m] = calMonth.split('-').map(Number);
   const today = todaySeoul();
   $('#calTitle').textContent = `${y}년 ${m}월`;
+  renderAiEntry();
   const first = new Date(Date.UTC(y, m - 1, 1));
   const start = first.getTime() - first.getUTCDay() * 86400000;
   const grid = $('#calGrid');
@@ -2011,22 +2012,31 @@ $('#aiTitleBtn').addEventListener('click', () => {
   renderMonthPicker();
   openDialog(monthPicker);
 });
-$('#goAnalysis').addEventListener('click', () => {
-  // 새로 도착한 분석이 있으면 그 달부터, 아니면 기록이 있는 가장 최근 달
-  const fresh = store.analyses().find(isNewAi);
-  const latest = store.all().reduce((m, e) => (e.date > m ? e.date : m), '').slice(0, 7);
-  aiMonth = fresh?.month || latest || todaySeoul().slice(0, 7);
+// 달력 맨 아래: 보고 있는 달의 AI 분석 (누르면 그 달 분석 화면)
+const openAiFromCal = () => {
+  aiMonth = calMonth;
   showView('analysis', { sub: true });
-});
+};
+$('#goAnalysis').addEventListener('click', openAiFromCal);
+$('#aiCalSummary').addEventListener('click', openAiFromCal);
 function renderAiEntry() {
-  const fresh = store.analyses().filter(isNewAi);
-  $('#aiEntryDot').hidden = !fresh.length;
-  const busy = store.analyses().find((x) => isRunning(x) || aiStatus.running.has(x.month));
-  $('#aiEntrySub').textContent = busy
-    ? `⏳ ${monthLabel(busy.month, todaySeoul())} 분석하는 중…`
-    : fresh.length
-      ? `💌 ${fresh[0].requestedBy || '가족'}${josaIga(fresh[0].requestedBy || '가족')} 의뢰한 ${fresh[0].label || monthLabel(fresh[0].month, todaySeoul())} 분석이 도착했어요`
-      : '이 달의 민한이 마음·생각·발달을 따뜻하게 읽어 드려요';
+  const month = calMonth;
+  const today = todaySeoul();
+  const [, m] = month.split('-').map(Number);
+  const a = store.analysis(month);
+  const n = monthEntries(month).length;
+  const busy = aiStatus.running.has(month) || isRunning(a);
+  $('#aiEntryTitle').textContent = `${m}월의 AI 성장 분석`;
+  $('#aiEntryDot').hidden = !(a && isNewAi(a));
+  const sum = $('#aiCalSummary');
+  sum.hidden = true;
+  if (busy) $('#aiEntrySub').textContent = `⏳ ${a?.requestedBy || ''}${a?.requestedBy ? josaIga(a.requestedBy) + ' 의뢰한 ' : ''}분석을 하는 중이에요…`;
+  else if (a?.text) {
+    $('#aiEntrySub').textContent = `${a.requestedBy || '가족'}${josaIga(a.requestedBy || '가족')} 의뢰 · 기록 ${a.entryCount ?? '?'}개 기준 · 눌러서 전체 보기`;
+    sum.hidden = false;
+    sum.innerHTML = `<p>${esc(summaryOf(a.text).split('\n').find((l) => l.trim() && !/^[-*]/.test(l.trim())) || '').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</p>`;
+  } else if (n) $('#aiEntrySub').textContent = `✨ ${monthLabel(month, today)} 기록 ${n}개로 분석해 볼까요? (무료)`;
+  else $('#aiEntrySub').textContent = '이 달에 기록이 쌓이면 AI가 민한이를 분석해 드려요';
 }
 
 /** 분석이 도착하면: 앱이 뒤에 있으면 폰 알림, 보고 있으면 화면에 알려 줌 */

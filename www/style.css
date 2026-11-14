@@ -707,3 +707,7 @@ mark { background: #ffe58a; border-radius: 3px; padding: 0 1px; }
 .ai-done-list .chip .new-dot { margin-right: 4px; }
 .month-btn.has::after { content: '🧠'; font-size: 0.7em; margin-left: 2px; }
 #aiKeyBox code { font-size: 0.8em; background: #f3edff; padding: 1px 4px; border-radius: 4px; }
+.ai-cal { margin-top: 14px; padding: 0; overflow: hidden; background: linear-gradient(135deg, #f3edff, #fff7ec); }
+.ai-cal .ai-entry { background: none; padding: 14px 16px; }
+.ai-cal-summary { padding: 0 16px 14px; font-size: 0.92rem; line-height: 1.6; color: #4b4458; cursor: pointer; }
+.ai-cal-summary p { margin: 0; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }

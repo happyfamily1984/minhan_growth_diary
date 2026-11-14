@@ -75,12 +75,6 @@
           <button class="btn small add-person" id="addPerson">➕ 가족 추가</button>
         </div>
 
-        <button class="card ai-entry" id="goAnalysis">
-          <span class="ai-entry-icon">🧠</span>
-          <span class="ai-entry-text"><b>월별 AI 성장 분석</b><small id="aiEntrySub">이 달의 민한이 마음·생각·발달을 따뜻하게 읽어 드려요</small></span>
-          <span class="new-dot" id="aiEntryDot" hidden>N</span>
-          <span class="ai-entry-go">›</span>
-        </button>
 
         <div id="freshWrap" hidden>
           <h2 class="section-title"><span class="new-dot">N</span>새로 올라온 내용</h2>
@@ -118,6 +112,17 @@
         </div>
         <div id="dayList" class="entries"></div>
         <div id="dayPhotos" class="photo-grid"></div>
+
+        <!-- 이달의 AI 분석 (보고 있는 달) -->
+        <div class="card ai-cal" id="aiCal">
+          <button class="ai-entry" id="goAnalysis">
+            <span class="ai-entry-icon">🧠</span>
+            <span class="ai-entry-text"><b id="aiEntryTitle">이달의 AI 분석</b><small id="aiEntrySub"></small></span>
+            <span class="new-dot" id="aiEntryDot" hidden>N</span>
+            <span class="ai-entry-go">›</span>
+          </button>
+          <div class="ai-cal-summary" id="aiCalSummary" hidden></div>
+        </div>
       </section>
 
       <!-- 사진 -->
