@@ -110,6 +110,7 @@
           </div>
           <button class="btn primary write-day" id="writeDay">＋✏️<br />쓰기</button>
         </div>
+        <div class="day-absence" id="dayAbsence"></div>
         <div id="dayList" class="entries"></div>
         <div id="dayPhotos" class="photo-grid"></div>
 
@@ -123,6 +124,14 @@
           </button>
           <div class="ai-cal-summary" id="aiCalSummary" hidden></div>
         </div>
+
+        <!-- 결석 기록 (보고 있는 달의 학년도) -->
+        <button class="card abs-entry" id="goAbsence">
+          <span class="ai-entry-icon">🏫</span>
+          <span class="ai-entry-text"><b id="absEntryTitle">결석 기록</b><small id="absEntrySub"></small></span>
+          <span class="new-dot" id="absEntryDot" hidden>N</span>
+          <span class="ai-entry-go">›</span>
+        </button>
       </section>
 
       <!-- 사진 -->
@@ -185,6 +194,28 @@
         </div>
         <div class="card ai-result" id="aiResult" hidden></div>
         <div class="ai-done-list" id="aiDoneList"></div>
+      </section>
+
+      <!-- 결석 기록 -->
+      <section id="view-absence" class="view" hidden>
+        <div class="card abs-head">
+          <h2 class="section-title"><span>🏫</span>결석 기록</h2>
+          <div class="cal-head">
+            <button class="circle-btn" id="absPrev" aria-label="이전 학년도">‹</button>
+            <div class="pill pill-cream cal-title"><span>🎒</span><span id="absTitle"></span></div>
+            <button class="circle-btn" id="absNext" aria-label="다음 학년도">›</button>
+          </div>
+          <div class="abs-range muted small" id="absRange"></div>
+          <div class="abs-limit">
+            <span>1년 동안 결석할 수 있는 날</span>
+            <span class="abs-limit-input"><input type="number" id="absLimit" min="0" max="365" inputmode="numeric" placeholder="?" />일</span>
+          </div>
+          <div class="abs-gauge" id="absGauge"></div>
+          <div class="abs-kinds" id="absKinds"></div>
+          <button class="btn primary big" id="absAdd">＋ 결석한 날 넣기</button>
+          <p class="muted small abs-note">인정결석과 외부활동은 결석 일수에 들어가지 않아요.</p>
+        </div>
+        <div id="absList"></div>
       </section>
 
       <!-- 찾기 / 설정 -->
@@ -315,6 +346,30 @@
       </div>
       <div class="editor-actions">
         <button type="button" class="btn danger" id="personDelete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 결석한 날 넣기·고치기 -->
+  <dialog id="absenceDialog">
+    <form id="absenceForm">
+      <h3 id="absenceTitle">🏫 결석한 날</h3>
+      <label class="field"><span class="field-label">날짜</span><input type="date" name="date" required /></label>
+      <div class="field">
+        <span class="field-label">종류</span>
+        <div class="seg abs-seg" role="radiogroup">
+          <label><input type="radio" name="type" value="normal" checked /><span>일반결석</span></label>
+          <label><input type="radio" name="type" value="excused" /><span>인정결석</span></label>
+          <label><input type="radio" name="type" value="outside" /><span>외부활동</span></label>
+        </div>
+        <small class="muted" id="absenceTypeHint"></small>
+      </div>
+      <label class="field"><span class="field-label">메모 <small class="muted">(선택)</small></span><input type="text" name="note" maxlength="60" placeholder="예: 감기, 가족여행, 체험학습" /></label>
+      <div class="editor-actions">
+        <button type="button" class="btn danger" id="absenceDelete" hidden>삭제</button>
         <span class="spacer"></span>
         <button type="button" class="btn" data-close>취소</button>
         <button type="submit" class="btn primary">저장</button>

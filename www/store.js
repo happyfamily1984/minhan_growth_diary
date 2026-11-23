@@ -35,6 +35,8 @@ const base = `families/${FAMILY_ID}`;
 const entriesCol = collection(fs, `${base}/entries`);
 const photosCol = collection(fs, `${base}/photos`);
 const peopleCol = collection(fs, `${base}/people`); // 사주보기에 추가한 가족
+const absencesCol = collection(fs, `${base}/absences`); // 결석한 날 (문서 이름 = YYYY-MM-DD)
+const absenceYearsCol = collection(fs, `${base}/absenceYears`); // 학년도별 결석 가능 일수 (문서 이름 = 2026)
 const analysesCol = collection(fs, `${base}/analyses`); // 월별 AI 분석 (문서 이름 = YYYY-MM)
 const photoDataDoc = (id) => doc(fs, `${base}/photoData/${id}`);
 
@@ -48,6 +50,8 @@ let photos = new Map();
 let people = new Map();
 let analyses = new Map();
 let analysesReady = false;
+let absences = new Map();
+let absenceYears = new Map();
 let ready = { entries: false, photos: false };
 const listeners = new Set();
 let syncState = { offline: false, pending: false };
@@ -78,6 +82,14 @@ function startListening(onReady) {
       people = new Map(snap.docs.map((d) => [d.id, d.data()]));
       emit();
     }, (err) => console.error('people', err)),
+    onSnapshot(absencesCol, (snap) => {
+      absences = new Map(snap.docs.map((d) => [d.id, d.data()]));
+      emit();
+    }, (err) => console.error('absences', err)),
+    onSnapshot(absenceYearsCol, (snap) => {
+      absenceYears = new Map(snap.docs.map((d) => [d.id, d.data()]));
+      emit();
+    }, (err) => console.error('absenceYears', err)),
     onSnapshot(analysesCol, (snap) => {
       analyses = new Map(snap.docs.map((d) => [d.id, d.data()]));
       analysesReady = true;
@@ -209,6 +221,48 @@ export const store = {
   async removePerson(id) {
     people.delete(id);
     write(deleteDoc(doc(peopleCol, id)));
+    emit();
+  },
+
+  // ---- 결석 기록 ----
+  // type: normal 일반결석(결석 수에 들어감) · excused 인정결석 · outside 외부활동 (둘 다 결석 수에 안 들어감)
+  absences: () => [...absences.values()].sort((a, b) => a.date.localeCompare(b.date)),
+  absence: (date) => absences.get(date) || null,
+  saveAbsence(a, oldDate) {
+    if (!DATE_RE.test(a.date || '')) throw new Error('날짜를 골라 주세요');
+    if (!['normal', 'excused', 'outside'].includes(a.type)) throw new Error('결석 종류를 골라 주세요');
+    const now = new Date().toISOString();
+    const prev = absences.get(oldDate || a.date);
+    const v = {
+      date: a.date,
+      type: a.type,
+      note: String(a.note || '').trim(),
+      author: prev?.author ?? currentAuthor,
+      createdAt: prev?.createdAt || now,
+      updatedAt: now,
+    };
+    if (oldDate && oldDate !== a.date) {
+      absences.delete(oldDate);
+      write(deleteDoc(doc(absencesCol, oldDate)));
+    }
+    absences.set(v.date, v);
+    write(setDoc(doc(absencesCol, v.date), v));
+    emit();
+    return v;
+  },
+  removeAbsence(date) {
+    absences.delete(date);
+    write(deleteDoc(doc(absencesCol, date)));
+    emit();
+  },
+  /** 그 학년도에 결석할 수 있는 일수 (안 정했으면 null) */
+  absenceLimit: (year) => absenceYears.get(String(year))?.limit ?? null,
+  setAbsenceLimit(year, limit) {
+    const n = Math.max(0, Math.min(365, Math.round(Number(limit))));
+    if (!Number.isFinite(n)) throw new Error('숫자를 넣어 주세요');
+    const v = { year: Number(year), limit: n, updatedAt: new Date().toISOString() };
+    absenceYears.set(String(year), v);
+    write(setDoc(doc(absenceYearsCol, String(year)), v));
     emit();
   },
 

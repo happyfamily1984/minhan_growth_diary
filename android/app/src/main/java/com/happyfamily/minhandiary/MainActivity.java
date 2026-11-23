@@ -56,6 +56,7 @@ public class MainActivity extends BridgeActivity {
         // 앱을 열면 쌓인 알림은 지운다 (앱 안에서 N 으로 보임)
         androidx.core.app.NotificationManagerCompat.from(this).cancel(NewEntryWorker.NOTIF_ID);
         androidx.core.app.NotificationManagerCompat.from(this).cancel(NewEntryWorker.AI_NOTIF_ID);
+        androidx.core.app.NotificationManagerCompat.from(this).cancel(NewEntryWorker.ABS_NOTIF_ID);
         getSharedPreferences(NewEntryWorker.PREFS, MODE_PRIVATE).edit().remove("pending").apply();
     }
 
@@ -136,6 +137,9 @@ public class MainActivity extends BridgeActivity {
                 e.putString("author", o.optString("author"));
                 if (!p.contains("since")) e.putString("since", o.optString("since")); // 처음 설정한 때부터만 알림
                 if (!p.contains("aiSince")) e.putString("aiSince", o.optString("since"));
+                if (!p.contains("absSince")) e.putString("absSince", new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US) {{
+                    setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+                }}.format(new java.util.Date())); // 이 버전을 깐 뒤에 들어온 결석만
                 e.apply();
             } catch (Exception ignored) {}
         }
@@ -152,6 +156,24 @@ public class MainActivity extends BridgeActivity {
         public void aiSeenUpTo(String iso) {
             android.content.SharedPreferences p = ctx.getSharedPreferences(NewEntryWorker.PREFS, android.content.Context.MODE_PRIVATE);
             if (iso != null && iso.compareTo(p.getString("aiSeen", "")) > 0) p.edit().putString("aiSeen", iso).apply();
+        }
+
+        @JavascriptInterface
+        public void absSeenUpTo(String iso) {
+            android.content.SharedPreferences p = ctx.getSharedPreferences(NewEntryWorker.PREFS, android.content.Context.MODE_PRIVATE);
+            if (iso != null && iso.compareTo(p.getString("absSeen", "")) > 0) p.edit().putString("absSeen", iso).apply();
+        }
+
+        /** 앱이 뒤에 있을 때 다른 사람이 결석을 넣으면 바로 알림 */
+        @JavascriptInterface
+        public void absenceNew(String json) {
+            try {
+                JSONObject o = new JSONObject(json);
+                NewEntryWorker.showSimple(ctx, NewEntryWorker.ABS_NOTIF_ID, "abs:" + o.getString("date"), o.optString("title"), o.optString("body"));
+                android.content.SharedPreferences p = ctx.getSharedPreferences(NewEntryWorker.PREFS, android.content.Context.MODE_PRIVATE);
+                String c = o.optString("createdAt");
+                if (c.compareTo(p.getString("absNotified", "")) > 0) p.edit().putString("absNotified", c).apply(); // 15분 확인 때 또 알리지 않게
+            } catch (Exception ignored) {}
         }
 
         /** 앱이 뒤에 있을 때 AI 분석이 끝나면 바로 알림 */

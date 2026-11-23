@@ -711,3 +711,61 @@ mark { background: #ffe58a; border-radius: 3px; padding: 0 1px; }
 .ai-cal .ai-entry { background: none; padding: 14px 16px; }
 .ai-cal-summary { padding: 0 16px 14px; font-size: 0.92rem; line-height: 1.6; color: #4b4458; cursor: pointer; }
 .ai-cal-summary p { margin: 0; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ---------- 결석 기록 ---------- */
+:root { --abs-normal: #e5534b; --abs-excused: #3b8ed8; --abs-outside: #2fa36b; }
+.cal-day { position: relative; }
+.cal-day .abs-mark { position: absolute; top: 2px; right: 3px; font-style: normal; font-size: 0.62rem; font-weight: 800; line-height: 1; padding: 2px 3px; border-radius: 6px; color: #fff; }
+.cal-day.abs-normal .abs-mark { background: var(--abs-normal); }
+.cal-day.abs-excused .abs-mark { background: var(--abs-excused); }
+.cal-day.abs-outside .abs-mark { background: var(--abs-outside); }
+.day-absence { margin: -4px 0 12px; display: flex; justify-content: flex-end; }
+.day-absence:empty { display: none; }
+.abs-add-day { border: 1.5px dashed #d8cbbb; background: transparent; color: #8b7d72; border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 0.88rem; cursor: pointer; }
+.abs-chip { border: 0; border-radius: 999px; padding: 7px 14px; font: inherit; font-weight: 700; font-size: 0.9rem; cursor: pointer; color: #fff; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.abs-chip small { opacity: 0.8; font-weight: 400; margin-left: 4px; }
+.abs-chip.abs-normal { background: var(--abs-normal); }
+.abs-chip.abs-excused { background: var(--abs-excused); }
+.abs-chip.abs-outside { background: var(--abs-outside); }
+.abs-entry { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; cursor: pointer; font: inherit; color: inherit; margin-top: 14px; background: linear-gradient(135deg, #eaf4ff, #fff7ec); }
+.abs-entry .ai-entry-text b { color: #3b7fc4; }
+.abs-entry.over .ai-entry-text small { color: var(--abs-normal); font-weight: 700; }
+.abs-head { display: flex; flex-direction: column; gap: 12px; }
+.abs-head .section-title { margin: 0; }
+.abs-range { text-align: center; margin-top: -4px; }
+.abs-limit { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--cream); border: 1.5px solid var(--line); border-radius: 16px; padding: 10px 14px; font-weight: 700; }
+.abs-limit-input { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.abs-limit input { width: 64px; text-align: center; font: inherit; font-size: 1.2rem; font-weight: 800; color: var(--orange); border: 1.5px solid var(--line); border-radius: 10px; padding: 4px; background: var(--card); }
+.abs-gauge { text-align: center; }
+.abs-gauge p { margin: 4px 0 0; }
+.abs-big { font-size: 1.05rem; font-weight: 700; }
+.abs-big b { font-size: 2rem; color: var(--abs-normal); font-weight: 900; }
+.abs-bar { height: 12px; background: var(--line); border-radius: 6px; overflow: hidden; margin: 8px 0 6px; }
+.abs-bar i { display: block; height: 100%; border-radius: 6px; background: #f2b84b; }
+.abs-bar.ok i { background: #6cc28a; }
+.abs-bar.over i { background: var(--abs-normal); }
+.abs-left { font-size: 0.95rem; }
+.abs-left b { font-size: 1.15rem; }
+.abs-left.warn { color: #c97a10; }
+.abs-left.over { color: var(--abs-normal); font-weight: 700; }
+.abs-kinds { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.abs-kind { border-radius: 999px; padding: 5px 11px; font-size: 0.85rem; background: #f6f1ea; }
+.abs-kind small { color: #9a8f86; }
+.abs-kind.abs-normal b { color: var(--abs-normal); }
+.abs-kind.abs-excused b { color: var(--abs-excused); }
+.abs-kind.abs-outside b { color: var(--abs-outside); }
+.abs-note { text-align: center; margin: 0; }
+.abs-items { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.abs-item { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; text-align: left; border: 0; cursor: pointer; font: inherit; color: inherit; padding: 12px 14px 22px; }
+.abs-item.flash { animation: flash 0.8s ease-in-out 3; }
+.abs-date { white-space: nowrap; }
+.abs-type { border-radius: 999px; padding: 3px 10px; font-size: 0.82rem; font-weight: 700; color: #fff; white-space: nowrap; }
+.abs-type.abs-normal { background: var(--abs-normal); }
+.abs-type.abs-excused { background: var(--abs-excused); }
+.abs-type.abs-outside { background: var(--abs-outside); }
+.abs-memo { flex-basis: 100%; color: #6b6158; font-size: 0.92rem; overflow-wrap: anywhere; }
+.abs-item .new-dot { position: absolute; top: 10px; right: 12px; }
+.abs-seg span { font-size: 0.98rem; padding: 10px 4px; }
+#absenceForm input[type=text], #absenceForm input[type=date] { border: 1.5px solid var(--line); background: var(--cream); border-radius: 12px; padding: 10px 12px; font-size: 1rem; }
+.abs-seg label { position: relative; }
+.abs-head .cal-title::after { display: none; } .abs-head .cal-title { cursor: default; }

@@ -132,7 +132,7 @@ function renderList(container, list, opts = {}) {
 }
 
 // ---------------- 화면 전환 (안드로이드 뒤로가기 지원) ----------------
-const VIEWS = ['home', 'calendar', 'photos', 'import', 'search', 'all', 'analysis'];
+const VIEWS = ['home', 'calendar', 'photos', 'import', 'search', 'all', 'analysis', 'absence'];
 let currentView = 'home';
 // 폰 앱: 안드로이드 뒤로가기를 직접 처리한다 (메뉴 안의 행동 → 메뉴 첫 화면 → 오늘 → 종료할까요?)
 const AppPlugin = window.Capacitor?.Plugins?.App;
@@ -152,7 +152,7 @@ function showView(name, { push = true, sub = false } = {}) {
   currentView = name;
   for (const s of $$('.view')) s.hidden = s.id !== `view-${name}`;
   for (const b of $$('.bottom [data-view]')) b.classList.toggle('active', b.dataset.view === name);
-  $('#bannerImg').src = `img/banner-${{ all: 'search', search: 'search', analysis: 'home' }[name] || name}.webp`;
+  $('#bannerImg').src = `img/banner-${{ all: 'search', search: 'search', analysis: 'home', absence: 'calendar' }[name] || name}.webp`;
   requestAnimationFrame(() => growAll());
   const left = $('#topLeftBtn');
   left.textContent = name === 'home' ? '🔍' : '🏠';
@@ -248,6 +248,7 @@ for (const d of $$('dialog')) {
 function refresh() {
   if (currentView === 'home') renderHome();
   if (currentView === 'analysis') renderAnalysisView();
+  if (currentView === 'absence') renderAbsenceView();
   if (currentView === 'calendar') renderCalendar();
   if (currentView === 'photos') renderGallery();
   if (currentView === 'all') renderAll();
@@ -613,6 +614,8 @@ async function renderCalendar() {
   const today = todaySeoul();
   $('#calTitle').textContent = `${y}년 ${m}월`;
   renderAiEntry();
+  renderAbsEntry();
+  renderDayAbsence();
   const first = new Date(Date.UTC(y, m - 1, 1));
   const start = first.getTime() - first.getUTCDay() * 86400000;
   const grid = $('#calGrid');
@@ -625,11 +628,12 @@ async function renderCalendar() {
     if (i >= 35 && !inMonth && i % 7 === 0) break;
     const c = counts[ymd] || 0;
     if (inMonth) monthCount += c;
+    const ab = store.absence(ymd);
     const btn = document.createElement('button');
-    btn.className = ['cal-day', !inMonth && 'other', ymd === today && 'today', ymd === selectedDate && 'selected', c && 'has', photoDays[ymd] && 'has-photo', ymd === BIRTH_DATE && 'birth', d.getUTCDay() === 0 && 'sun', d.getUTCDay() === 6 && 'sat']
+    btn.className = ['cal-day', !inMonth && 'other', ymd === today && 'today', ymd === selectedDate && 'selected', c && 'has', photoDays[ymd] && 'has-photo', ymd === BIRTH_DATE && 'birth', ab && `absent abs-${ab.type}`, d.getUTCDay() === 0 && 'sun', d.getUTCDay() === 6 && 'sat']
       .filter(Boolean)
       .join(' ');
-    btn.innerHTML = `<span>${d.getUTCDate()}</span>`;
+    btn.innerHTML = `<span>${d.getUTCDate()}</span>${ab ? `<em class="abs-mark">${ABS_TYPE[ab.type].short}</em>` : ''}`;
     btn.disabled = ymd < BIRTH_DATE;
     btn.addEventListener('click', () => {
       if (ymd !== selectedDate) snapCal();
@@ -2062,6 +2066,246 @@ function watchAiForNotify() {
   }
 }
 
+// ---------------- 결석 기록 ----------------
+// 학년도(3월 ~ 다음 해 2월)마다 결석할 수 있는 일수를 정하고, 결석한 날을 넣는다.
+// 일반결석만 결석 일수에 들어가고, 인정결석·외부활동은 따로 세기만 한다.
+const ABS_TYPE = {
+  normal: { label: '일반결석', short: '결', icon: '🤒', hint: '결석 일수에 들어가요' },
+  excused: { label: '인정결석', short: '인', icon: '📋', hint: '결석 일수에 들어가지 않아요 (병원 진단서, 경조사 등)' },
+  outside: { label: '외부활동', short: '외', icon: '🚌', hint: '결석 일수에 들어가지 않아요 (체험학습, 대회 등)' },
+};
+/** 2016년생 → 2023학년도에 초등학교 1학년 */
+function gradeOf(y) {
+  const g = y - (Number(BIRTH_DATE.slice(0, 4)) + 6);
+  if (g >= 1 && g <= 6) return `초등학교 ${g}학년`;
+  if (g >= 7 && g <= 9) return `중학교 ${g - 6}학년`;
+  if (g >= 10 && g <= 12) return `고등학교 ${g - 9}학년`;
+  return g < 1 ? '취학 전' : '졸업 후';
+}
+/** 그 날짜가 들어가는 학년도 (3월부터 새 학년) */
+const schoolYearOf = (ymd) => (Number(ymd.slice(5, 7)) >= 3 ? Number(ymd.slice(0, 4)) : Number(ymd.slice(0, 4)) - 1);
+const schoolYearRange = (y) => [`${y}-03-01`, `${y + 1}-02-${new Date(Date.UTC(y + 1, 2, 0)).getUTCDate()}`];
+let absYear = schoolYearOf(todaySeoul());
+const absInYear = (y) => {
+  const [from, to] = schoolYearRange(y);
+  return store.absences().filter((a) => a.date >= from && a.date <= to);
+};
+function absStats(y) {
+  const list = absInYear(y);
+  const c = { normal: 0, excused: 0, outside: 0 };
+  for (const a of list) c[a.type] = (c[a.type] || 0) + 1;
+  const limit = store.absenceLimit(y);
+  return { list, c, limit, left: limit == null ? null : limit - c.normal };
+}
+const koMD = (ymd) => `${Number(ymd.slice(5, 7))}월 ${Number(ymd.slice(8))}일`;
+const ABS_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+const weekday = (ymd) => ABS_WEEK[new Date(ymd + 'T00:00:00Z').getUTCDay()];
+
+// --- 새로 들어온(다른 사람이 넣은) 결석: N 표시 ---
+const ABS_SEEN_KEY = 'minhan-abs-seen';
+let absSeenAt = (() => {
+  try {
+    let v = localStorage.getItem(ABS_SEEN_KEY);
+    if (!v) localStorage.setItem(ABS_SEEN_KEY, (v = new Date().toISOString())); // 처음 깔았을 때 있던 건 새 것이 아님
+    return v;
+  } catch {
+    return new Date().toISOString();
+  }
+})();
+const isNewAbs = (a) => a.author && a.author !== myName() && (a.createdAt || '') > absSeenAt;
+function markAbsSeen() {
+  const last = store.absences().reduce((m, a) => (a.createdAt > m ? a.createdAt : m), absSeenAt);
+  absSeenAt = last;
+  try {
+    localStorage.setItem(ABS_SEEN_KEY, last);
+  } catch {}
+}
+
+/** 달력: 고른 날의 결석 표시 / 결석 넣기 */
+function renderDayAbsence() {
+  const box = $('#dayAbsence');
+  const d = selectedDate;
+  if (d < BIRTH_DATE || d > todaySeoul()) {
+    box.innerHTML = '';
+    return;
+  }
+  const a = store.absence(d);
+  box.innerHTML = a
+    ? `<button class="abs-chip abs-${a.type}" data-abs-edit="${d}">${ABS_TYPE[a.type].icon} ${ABS_TYPE[a.type].label}${a.note ? ` · ${esc(a.note)}` : ''} <small>고치기</small></button>`
+    : `<button class="abs-add-day" data-abs-new="${d}">🏫 이 날 결석했어요</button>`;
+}
+/** 달력 맨 아래: 이 학년도 결석 요약 */
+function renderAbsEntry() {
+  const y = schoolYearOf(calMonth + '-01');
+  const st = absStats(y);
+  $('#absEntryTitle').textContent = `${y}학년도 결석 기록`;
+  const others = st.c.excused + st.c.outside ? ` · 인정 ${st.c.excused} · 외부 ${st.c.outside}` : '';
+  $('#absEntrySub').textContent =
+    st.limit == null
+      ? st.list.length
+        ? `일반결석 ${st.c.normal}일${others} · 결석 가능 일수를 정해 주세요`
+        : '1년 결석 가능 일수와 결석한 날을 적어 두세요'
+      : `일반결석 ${st.c.normal} / ${st.limit}일 · ${st.left >= 0 ? `남은 ${st.left}일` : `${-st.left}일 넘었어요`}${others}`;
+  $('#absEntryDot').hidden = !store.absences().some(isNewAbs);
+  $('#goAbsence').classList.toggle('over', st.left != null && st.left < 0);
+}
+
+function renderAbsenceView() {
+  const today = todaySeoul();
+  const thisYear = schoolYearOf(today);
+  const firstYear = schoolYearOf(BIRTH_DATE);
+  absYear = Math.min(Math.max(absYear, firstYear), thisYear + 1);
+  const [from, to] = schoolYearRange(absYear);
+  $('#absTitle').textContent = `${absYear}학년도`;
+  $('#absRange').textContent = `${absYear}년 3월 1일 ~ ${absYear + 1}년 2월 ${Number(to.slice(8))}일 · ${gradeOf(absYear)}`;
+  $('#absPrev').disabled = absYear <= firstYear;
+  $('#absNext').disabled = absYear >= thisYear + 1;
+  const st = absStats(absYear);
+  const lim = $('#absLimit');
+  if (document.activeElement !== lim) lim.value = st.limit ?? '';
+  // 게이지
+  const g = $('#absGauge');
+  if (st.limit == null) g.innerHTML = `<div class="abs-big">일반결석 <b>${st.c.normal}</b>일</div><p class="muted small">위에 결석할 수 있는 일수를 넣으면 남은 날을 알려 드려요</p>`;
+  else {
+    const pct = st.limit ? Math.min(100, Math.round((st.c.normal / st.limit) * 100)) : st.c.normal ? 100 : 0;
+    const level = st.left < 0 ? 'over' : st.left <= 1 ? 'warn' : 'ok';
+    g.innerHTML = `<div class="abs-big">일반결석 <b>${st.c.normal}</b> / ${st.limit}일</div>
+      <div class="abs-bar ${level}"><i style="width:${pct}%"></i></div>
+      <div class="abs-left ${level}">${st.left > 0 ? `앞으로 <b>${st.left}</b>일 더 결석할 수 있어요` : st.left === 0 ? '결석할 수 있는 날을 <b>모두</b> 썼어요' : `결석 가능 일수를 <b>${-st.left}</b>일 넘었어요`}</div>`;
+  }
+  $('#absKinds').innerHTML = Object.entries(ABS_TYPE)
+    .map(([k, t]) => `<span class="abs-kind abs-${k}">${t.icon} ${t.label} <b>${st.c[k]}</b>${k === 'normal' ? '' : ' <small>(안 셈)</small>'}</span>`)
+    .join('');
+  // 목록 (월별)
+  const box = $('#absList');
+  if (!st.list.length) {
+    box.innerHTML = '<div class="empty">이 학년도에는 결석한 날이 없어요 👍</div>';
+  } else {
+    const byMonth = new Map();
+    for (const a of st.list) {
+      const k = a.date.slice(0, 7);
+      if (!byMonth.has(k)) byMonth.set(k, []);
+      byMonth.get(k).push(a);
+    }
+    box.innerHTML = [...byMonth]
+      .map(
+        ([ym, items]) => `<h2 class="section-title"><span>📅</span>${ym.slice(0, 4)}년 ${Number(ym.slice(5))}월 <small class="muted">${items.length}일</small></h2>
+        <div class="abs-items">${items
+          .map(
+            (a) => `<button class="card abs-item" data-abs-edit="${a.date}" data-abs-date="${a.date}">
+              <span class="abs-date"><b>${koMD(a.date)}</b> (${weekday(a.date)})</span>
+              <span class="abs-type abs-${a.type}">${ABS_TYPE[a.type].icon} ${ABS_TYPE[a.type].label}</span>
+              ${a.note ? `<span class="abs-memo">${esc(a.note)}</span>` : ''}
+              ${isNewAbs(a) ? '<span class="new-dot">N</span>' : ''}
+              ${a.author ? `<span class="author-mini">${esc(a.author)}</span>` : ''}
+            </button>`,
+          )
+          .join('')}</div>`,
+      )
+      .join('');
+  }
+  setTimeout(markAbsSeen, 1500); // 화면에서 N 을 한 번 보여 준 뒤 본 것으로
+}
+
+const absDialog = $('#absenceDialog');
+const absForm = $('#absenceForm');
+let editingAbs = null;
+function openAbsence(date, existing = null) {
+  editingAbs = existing;
+  absForm.reset();
+  absForm.date.value = existing?.date || date || todaySeoul();
+  absForm.date.max = todaySeoul();
+  absForm.date.min = BIRTH_DATE;
+  absForm.type.value = existing?.type || 'normal';
+  absForm.note.value = existing?.note || '';
+  $('#absenceTitle').textContent = existing ? `🏫 ${koMD(existing.date)} 결석 고치기` : '🏫 결석한 날 넣기';
+  $('#absenceDelete').hidden = !existing;
+  showAbsHint();
+  openDialog(absDialog);
+}
+function showAbsHint() {
+  $('#absenceTypeHint').textContent = ABS_TYPE[absForm.type.value]?.hint || '';
+}
+for (const r of absForm.querySelectorAll('input[name=type]')) r.addEventListener('change', showAbsHint);
+absForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const date = absForm.date.value;
+  const dup = store.absence(date);
+  if (dup && dup.date !== editingAbs?.date) {
+    if (!confirm(`${koMD(date)}에는 이미 ${ABS_TYPE[dup.type].label}이 있어요. 바꿀까요?`)) return;
+  }
+  try {
+    const v = store.saveAbsence({ date, type: absForm.type.value, note: absForm.note.value }, editingAbs?.date);
+    closeDialog(absDialog);
+    const st = absStats(schoolYearOf(v.date));
+    toast(`${koMD(v.date)} ${ABS_TYPE[v.type].label} 저장${st.limit != null ? ` · 남은 결석 ${Math.max(st.left, 0)}일` : ''}`);
+    absYear = schoolYearOf(v.date);
+    refresh();
+  } catch (err) {
+    toast(err.message);
+  }
+});
+$('#absenceDelete').addEventListener('click', () => {
+  if (!editingAbs || !confirm(`${koMD(editingAbs.date)} 결석 기록을 지울까요?`)) return;
+  store.removeAbsence(editingAbs.date);
+  closeDialog(absDialog);
+  refresh();
+});
+document.addEventListener('click', (e) => {
+  const ed = e.target.closest('[data-abs-edit]');
+  if (ed) return openAbsence(ed.dataset.absEdit, store.absence(ed.dataset.absEdit));
+  const nw = e.target.closest('[data-abs-new]');
+  if (nw) openAbsence(nw.dataset.absNew);
+});
+$('#absAdd').addEventListener('click', () => {
+  const [from, to] = schoolYearRange(absYear);
+  const t = todaySeoul();
+  openAbsence(t >= from && t <= to ? t : from);
+});
+$('#absLimit').addEventListener('change', (e) => {
+  const v = e.target.value.trim();
+  if (v === '') return;
+  try {
+    store.setAbsenceLimit(absYear, v);
+    toast(`${absYear}학년도 결석 가능 일수: ${store.absenceLimit(absYear)}일`);
+  } catch (err) {
+    toast(err.message);
+  }
+});
+$('#absPrev').addEventListener('click', () => {
+  absYear--;
+  renderAbsenceView();
+});
+$('#absNext').addEventListener('click', () => {
+  absYear++;
+  renderAbsenceView();
+});
+$('#goAbsence').addEventListener('click', () => {
+  absYear = schoolYearOf(calMonth + '-01');
+  showView('absence', { sub: true });
+});
+
+/** 다른 사람이 결석을 넣으면: 앱이 뒤에 있으면 폰 알림, 보고 있으면 화면에 알려 줌 */
+let knownAbs = null;
+function watchAbsForNotify() {
+  if (!store.ready()) return;
+  const all = store.absences();
+  if (!knownAbs) {
+    knownAbs = new Set(all.map((a) => a.date + a.createdAt));
+    return;
+  }
+  const fresh = all.filter((a) => !knownAbs.has(a.date + a.createdAt));
+  fresh.forEach((a) => knownAbs.add(a.date + a.createdAt));
+  const others = fresh.filter((a) => a.author && a.author !== myName());
+  if (!others.length) return;
+  const a = others[others.length - 1];
+  const title = `${a.author}${josaIga(a.author)} ${koMD(a.date)} 결석(${ABS_TYPE[a.type]?.label || '결석'})을 기록했어요${others.length > 1 ? ` 외 ${others.length - 1}건` : ''}`;
+  const st = absStats(schoolYearOf(a.date));
+  const body = `${a.note ? a.note + ' · ' : ''}일반결석 ${st.c.normal}일${st.limit != null ? ` / ${st.limit}일 (남은 ${Math.max(st.left, 0)}일)` : ''}`;
+  if (document.hidden && notify?.absenceNew) notify.absenceNew(JSON.stringify({ date: a.date, title, body, createdAt: others.reduce((m, x) => (x.createdAt > m ? x.createdAt : m), '') }));
+  else toast(`🏫 ${title}`);
+}
+
 // ---------------- 폰 알림 (안드로이드) ----------------
 // 앱이 꺼져 있어도 15분마다 새 글을 확인해서 알림을 띄운다 (MainActivity / NewEntryWorker)
 const notify = window.AndroidNotify;
@@ -2080,6 +2324,8 @@ function reportSeen() {
   if (last) notify.seenUpTo(last);
   const lastAi = store.analyses().reduce((m, a) => (a.doneAt > m ? a.doneAt : m), '');
   if (lastAi && notify.aiSeenUpTo) notify.aiSeenUpTo(lastAi);
+  const lastAbs = store.absences().reduce((m, a) => (a.createdAt > m ? a.createdAt : m), '');
+  if (lastAbs && notify.absSeenUpTo) notify.absSeenUpTo(lastAbs);
 }
 let pendingOpen = null;
 function takeOpen() {
@@ -2092,6 +2338,19 @@ function takeOpen() {
 /** 알림을 누르면: 그 글이 있는 날짜의 달력으로 가서 그 글을 반짝 보여 준다 */
 function openPending() {
   if (!pendingOpen || !store.ready()) return;
+  if (pendingOpen.startsWith('abs:')) {
+    const date = pendingOpen.slice(4);
+    pendingOpen = null;
+    absYear = schoolYearOf(date);
+    showView('absence', { sub: currentView !== 'absence' });
+    setTimeout(() => {
+      const el = document.querySelector(`.abs-item[data-abs-date="${date}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.classList.add('flash');
+      setTimeout(() => el?.classList.remove('flash'), 2400);
+    }, 350);
+    return;
+  }
   if (pendingOpen.startsWith('ai:')) {
     aiMonth = pendingOpen.slice(3);
     pendingOpen = null;
@@ -2294,6 +2553,7 @@ store.onChange(() => {
   showSync();
   watchNewForNotify();
   watchAiForNotify();
+  watchAbsForNotify();
   openPending();
   if (!document.hidden) reportSeen();
   clearTimeout(refreshTimer);

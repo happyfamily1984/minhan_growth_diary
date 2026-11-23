@@ -45,6 +45,7 @@ public class NewEntryWorker extends Worker {
     static final int NOTIF_ID = 1001;
     static final String EXTRA_OPEN = "openEntry";
     static final int AI_NOTIF_ID = 1002; // 월별 AI 분석 도착
+    static final int ABS_NOTIF_ID = 1003; // 결석 기록
 
     // www/firebase-config.js 와 같은 값
     private static final String API_KEY = "AIzaSyASJgfGdlxzfGPm9mmwqMtu_c7NF0iiwfk";
@@ -137,6 +138,7 @@ public class NewEntryWorker extends Worker {
                 .remove("lastError").apply();
             if (added > 0) show(ctx, pending);
             checkAnalyses(ctx, p, url, idToken, me);
+            checkAbsences(ctx, p, url, idToken, me);
             return Result.success();
         } catch (Exception e) {
             p.edit().putString("lastError", now() + " " + e).apply();
@@ -220,6 +222,50 @@ public class NewEntryWorker extends Worker {
         }
     }
 
+    /** 다른 사람이 넣은 결석 기록 알림 */
+    private static void checkAbsences(Context ctx, SharedPreferences p, String url, String idToken, String me) {
+        try {
+            String since = max(p.getString("absSince", ""), max(p.getString("absSeen", ""), p.getString("absNotified", "")));
+            if (since.isEmpty()) return;
+            JSONObject q = new JSONObject()
+                .put("structuredQuery", new JSONObject()
+                    .put("from", new JSONArray().put(new JSONObject().put("collectionId", "absences")))
+                    .put("where", new JSONObject().put("fieldFilter", new JSONObject()
+                        .put("field", new JSONObject().put("fieldPath", "createdAt"))
+                        .put("op", "GREATER_THAN")
+                        .put("value", new JSONObject().put("stringValue", since))))
+                    .put("orderBy", new JSONArray().put(new JSONObject()
+                        .put("field", new JSONObject().put("fieldPath", "createdAt")).put("direction", "ASCENDING")))
+                    .put("limit", 20));
+            JSONArray rows = new JSONArray(http(url, "application/json", q.toString(), idToken));
+            String last = p.getString("absNotified", "");
+            JSONObject latest = null;
+            int n = 0;
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject doc = rows.getJSONObject(i).optJSONObject("document");
+                if (doc == null) continue;
+                JSONObject f = doc.getJSONObject("fields");
+                last = max(last, str(f, "createdAt"));
+                String author = str(f, "author");
+                if (author.isEmpty() || author.equals(me)) continue;
+                latest = f;
+                n++;
+            }
+            p.edit().putString("absNotified", last).apply();
+            if (latest != null) {
+                String who = str(latest, "author");
+                String type = str(latest, "type");
+                String label = "excused".equals(type) ? "인정결석" : "outside".equals(type) ? "외부활동" : "일반결석";
+                String date = str(latest, "date");
+                String title = who + josa(who) + " " + koDate(date) + " 결석(" + label + ")을 기록했어요" + (n > 1 ? " 외 " + (n - 1) + "건" : "");
+                String note = str(latest, "note");
+                showSimple(ctx, ABS_NOTIF_ID, "abs:" + date, title, note.isEmpty() ? "눌러서 결석 기록을 볼 수 있어요" : note);
+            }
+        } catch (Exception e) {
+            p.edit().putString("lastError", now() + " 결석 확인: " + e).apply();
+        }
+    }
+
     static String josa(String w) {
         if (w.isEmpty()) return "가";
         char c = w.charAt(w.length() - 1);
@@ -229,11 +275,16 @@ public class NewEntryWorker extends Worker {
 
     /** 월별 AI 분석 도착 알림. 누르면 그 달 분석 화면으로 */
     static void showAnalysis(Context ctx, String month, String title, String body) {
+        showSimple(ctx, AI_NOTIF_ID, "ai:" + month, title, body);
+    }
+
+    /** 한 줄 알림. 누르면 open (ai:YYYY-MM, abs:YYYY-MM-DD) 화면으로 */
+    static void showSimple(Context ctx, int id, String target, String title, String body) {
         ensureChannel(ctx);
         Intent open = new Intent(ctx, MainActivity.class)
-            .putExtra(EXTRA_OPEN, "ai:" + month)
+            .putExtra(EXTRA_OPEN, target)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent pi = PendingIntent.getActivity(ctx, 1, open,
+        PendingIntent pi = PendingIntent.getActivity(ctx, id, open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_note)
@@ -244,7 +295,7 @@ public class NewEntryWorker extends Worker {
             .setContentIntent(pi)
             .setAutoCancel(true);
         try {
-            NotificationManagerCompat.from(ctx).notify(AI_NOTIF_ID, b.build());
+            NotificationManagerCompat.from(ctx).notify(id, b.build());
         } catch (SecurityException ignored) {}
     }
 
