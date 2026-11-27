@@ -57,7 +57,7 @@ const DIR = '/tmp/claude-0/-home-user-minhan-growth-diary/68acafee-43ec-5b40-a1d
     };
     await check('로그인');
     await p.click('#loginForm .role-btn[data-role=아빠]');
-    await p.fill('#pin', '7374');
+    await p.fill('#pin', '0000');
     await p.press('#pin', 'Enter');
     await p.waitForSelector('#app:visible');
     if (await p.$eval('#roleDialog', (d) => d.open)) { await p.click('#roleForm .role-btn[data-role=아빠]'); await p.click('#roleForm button[type=submit]'); }

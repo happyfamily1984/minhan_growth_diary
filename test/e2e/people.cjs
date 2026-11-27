@@ -1,0 +1,24 @@
+const { chromium, devices } = require('playwright');
+(async () => {
+  const b = await chromium.launch();
+  const mk = async () => { const p = await (await b.newContext({ ...devices['Pixel 7'] })).newPage(); p.errs = []; p.on('pageerror', e => p.errs.push(e.message));
+    await p.goto('http://localhost:5173/?emu=1'); await p.click('#loginForm .role-btn[data-role=엄마]'); await p.fill('#pin', '0000'); await p.press('#pin', 'Enter'); await p.waitForSelector('#app:visible'); return p; };
+  const mom = await mk(), dad = await mk();
+  await mom.click('#addPerson'); await mom.fill('#personForm input[name=name]', '할머니'); await mom.fill('#personForm input[name=date]', '1955-03-10');
+  await mom.click('#personForm button[type=submit]'); await mom.waitForTimeout(300);
+  console.log('시간 안 고르면:', await mom.textContent('#toast'));
+  await mom.check('#personForm input[name=unknown]'); await mom.click('#personForm button[type=submit]'); await mom.waitForTimeout(500);
+  console.log('엄마 폰 가족:', await mom.$$eval('.parent-row .parent-name', x => x.map(i => i.textContent.trim())));
+  await dad.waitForTimeout(1500); console.log('아빠 폰 가족(클라우드 공유):', await dad.$$eval('.parent-row .parent-name', x => x.map(i => i.textContent.trim())));
+  await mom.screenshot({ path: 'people-home.png' });
+  await mom.click('.parent-row:has-text("할머니") [data-saju]'); await mom.waitForTimeout(400);
+  console.log('할머니 사주 기둥:', await mom.$$eval('.pillar', x => x.map(i => i.textContent.replace(/\s+/g, ''))));
+  console.log('할머니 궁합:', await mom.$$eval('.saju-block h5', x => x.map(i => i.textContent).filter(t => t.includes('궁합'))));
+  await mom.screenshot({ path: 'people-saju.png' });
+  await mom.click('#sajuDialog [data-close]'); await mom.click('.saju-main'); await mom.waitForTimeout(300);
+  console.log('민한이 궁합:', await mom.$$eval('.saju-block h5', x => x.map(i => i.textContent).filter(t => t.includes('궁합'))));
+  await mom.click('#sajuDialog [data-close]');
+  await mom.click('[data-edit-person]'); await mom.fill('#personForm input[name=name]', '외할머니'); await mom.click('#personForm button[type=submit]'); await mom.waitForTimeout(400);
+  console.log('고친 뒤:', await mom.$$eval('.parent-row .parent-name', x => x.map(i => i.textContent.trim())));
+  console.log(mom.errs, dad.errs); await b.close();
+})();

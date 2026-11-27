@@ -1,0 +1,16 @@
+const { chromium, devices } = require('playwright');
+(async () => { const b = await chromium.launch(); const p = await (await b.newContext({ ...devices['Pixel 7'] })).newPage(); p.on('pageerror', e => console.log('ERR', e.message));
+  await p.goto('http://localhost:5173/?emu=1'); await p.click('#loginForm .role-btn[data-role=엄마]'); await p.fill('#pin', '0000'); await p.press('#pin', 'Enter'); await p.waitForSelector('#app:visible');
+  await p.evaluate(async () => { const { store } = await import('./store.js');
+    await store.put([{ date: '2026-09-02', kind: 'say', text: '별은 왜 낮에 안 보여?', author: '아빠' }]);
+    await store.saveAnalysis('2026-09', { status: 'done', text: '## 🌈 이달의 민한이 한눈에\n\n9월의 민한이는 **따뜻한 다정함**과 재치 있는 표현력, 그리고 스스로 어려움을 이겨내는 멋진 힘을 보여 주었어요. 친구를 돕고 가족을 웃게 했어요.\n\n- 친구 배려\n## 💬 말', requestedBy: '아빠', doneAt: new Date().toISOString(), entryCount: 6, label: '10세 9월' }); });
+  await p.waitForTimeout(800); console.log('홈에 AI 버튼?', await p.isVisible('#view-home #goAnalysis'));
+  await p.click('.bottom [data-view=calendar]'); await p.waitForTimeout(300);
+  console.log('이번달:', await p.textContent('#aiEntryTitle'), '|', await p.textContent('#aiEntrySub'));
+  await p.click('#calPrev'); await p.click('#calPrev'); await p.waitForTimeout(300);
+  console.log('9월:', await p.textContent('#aiEntryTitle'), '|', await p.textContent('#aiEntrySub'), '| N', await p.isVisible('#aiEntryDot'));
+  console.log('요약:', await p.textContent('#aiCalSummary'));
+  await p.locator('#aiCal').scrollIntoViewIfNeeded(); await p.screenshot({ path: 'cal-ai.png' });
+  await p.click('#goAnalysis'); await p.waitForTimeout(300); console.log('열린 분석:', await p.textContent('#aiTitle'), await p.isVisible('#view-analysis'));
+  await p.evaluate(() => history.back()); await p.waitForTimeout(300); console.log('뒤로 →', await p.isVisible('#view-calendar'), '| N', await p.isVisible('#aiEntryDot'));
+  await b.close(); })();
